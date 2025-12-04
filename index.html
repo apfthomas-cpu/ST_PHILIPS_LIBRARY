@@ -1,17 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Library Loan System</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ST PHILIP'S LIBRARY BOOK LOAN/RETURN</title>
 
+<!-- Styling -->
 <style>
-    * { box-sizing: border-box; }
+    * {
+        box-sizing: border-box;
+        font-family: Arial, sans-serif !important;
+    }
 
     body {
         margin: 0;
         padding: 0;
-        font-family: Arial, sans-serif;
         background: url('Background.jpg') no-repeat center center fixed;
         background-size: cover;
         color: white;
@@ -25,87 +28,83 @@
         max-width: 480px;
         margin: 20px auto;
         text-align: center;
+        animation: fadeIn 0.5s ease;
     }
 
-    input, select, button {
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    h1 {
+        font-size: 26px;
+        font-weight: bold;
+        margin-bottom: 20px;
+        text-transform: uppercase;
+        text-align: center;
+    }
+
+    button, select {
         width: 100%;
         padding: 14px;
         margin-top: 12px;
         border-radius: 10px;
         border: none;
         font-size: 18px;
+        cursor: pointer;
+        text-align: center;
+        transition: transform 0.15s ease, opacity 0.2s ease;
     }
 
     button {
-        cursor: pointer;
         background: #8AAA AF;
-        color: white;
-        font-size: 20px;
+        color: black;
         font-weight: bold;
+        text-transform: uppercase;
     }
 
-    button:hover { opacity: 0.9; }
+    button:hover { transform: scale(1.03); opacity: 0.9; }
+    button:active { transform: scale(0.95); }
 
     #reader {
         width: 100%;
-        max-width: 100%;
-        height: auto;
-        margin-bottom: 15px;
-        display: none; /* Initially hidden */
-    }
-
-    #tapToStart {
-        background: rgba(0,0,0,0.7);
-        padding: 20px;
-        margin-bottom: 15px;
-        border-radius: 10px;
-        font-size: 20px;
         display: none;
-        cursor: pointer;
+        margin-top: 15px;
     }
 
     #summary-screen { display: none; }
 
     #summaryCover {
-        margin-top: 12px;
         max-width: 180px;
-        border-radius: 8px;
-        box-shadow: 0 0 8px rgba(0,0,0,0.7);
+        margin-top: 15px;
         display: none;
-    }
-
-    @media (orientation: landscape) {
-        .overlay-box { max-width: 600px; }
-        input, select, button { font-size: 16px; }
-        #tapToStart { font-size: 18px; }
+        border-radius: 8px;
     }
 </style>
 </head>
 
 <body>
 
-<!-- MAIN INPUT SCREEN -->
+<!-- MAIN SCREEN -->
 <div id="scan-screen" class="overlay-box">
-    <h2>Library Book Loan / Return</h2>
 
-    <!-- TAP-TO-START fallback -->
-    <div id="tapToStart">📷 Tap to Start Scanner</div>
+    <h1>ST PHILIP'S LIBRARY BOOK LOAN/RETURN</h1>
 
-    <!-- CAMERA SCANNER -->
+    <button id="startScanButton">SCAN BAR CODE HERE</button>
+
     <div id="reader"></div>
 
-    <input id="barcodeInput" placeholder="Or scan/type barcode here..." />
+    <input type="hidden" id="barcodeInput">
 
     <h3>Action</h3>
     <select id="actionSelect">
-        <option value="">Choose...</option>
-        <option value="loan">Loan Out</option>
+        <option value="loan">Sign Out</option>
         <option value="return">Return</option>
     </select>
 
     <h3>Form</h3>
     <select id="formSelect">
-        <option value="">Choose form...</option>
+        <option value="">Select Form…</option>
         <option value="Form 8">Form 8</option>
         <option value="Form 7">Form 7</option>
         <option value="Form 6">Form 6</option>
@@ -114,36 +113,42 @@
         <option value="Form 3">Form 3</option>
     </select>
 
-    <h3>Name (Initials)</h3>
+    <h3>Initials</h3>
     <select id="initialsSelect">
-        <option value="">Choose initials...</option>
+        <option value="">Select Initials…</option>
     </select>
 
-    <button onclick="processScan()">Continue</button>
+    <button id="continueButton">Continue</button>
+
 </div>
 
 <!-- SUMMARY SCREEN -->
 <div id="summary-screen" class="overlay-box">
+
     <h2>Loan Summary</h2>
+
     <p id="summaryForm"></p>
-    <p id="summaryName"></p>
+    <p id="summaryInitials"></p>
     <p id="summaryBook"></p>
     <p id="summaryAuthor"></p>
-    <p id="summaryStatus"></p>
+    <p id="summaryAction"></p>
     <p id="summaryDate"></p>
-    <p id="summaryLoanDate"></p>
-    <p id="summaryReturnDate"></p>
-    <img id="summaryCover" src="">
+    <p id="summaryLoan"></p>
+    <p id="summaryReturn"></p>
+
+    <img id="summaryCover">
+
     <button onclick="resetForm()">Scan Another Book</button>
 </div>
 
 <!-- CAMERA LIBRARY -->
 <script src="https://unpkg.com/html5-qrcode"></script>
 
+<!-- MAIN SCRIPT -->
 <script>
-/* -----------------------------------------
+/* ----------------------------------------------------------
    FORM → INITIALS DATA
------------------------------------------ */
+----------------------------------------------------------- */
 const formStudents = {
     "Form 8": ["JC","ADB","CG","JG","RH","KH","AL","LLV","WN","IO","MP","HP","Ase","Ast","ST","AT","CW"],
     "Form 7": ["DAB","EC","TE","DE-S","PH-S","CH","NJ","LLFP","TM","LP","SS","AS","TS"],
@@ -153,193 +158,150 @@ const formStudents = {
     "Form 3": ["PA","PC","WH","BH"]
 };
 
-formSelect.addEventListener("change", () => {
-    initialsSelect.innerHTML = `<option value="">Choose initials...</option>`;
-    formStudents[formSelect.value]?.forEach(i => {
+/* ----------------------------------------------------------
+   INITIALS DROPDOWN POPULATION — CLEAN, SAFE VERSION
+----------------------------------------------------------- */
+document.getElementById("formSelect").addEventListener("change", function() {
+
+    const form = this.value;
+    const initialsSelect = document.getElementById("initialsSelect");
+
+    initialsSelect.innerHTML = `<option value="">Select Initials…</option>`;
+
+    if (!formStudents[form]) return;
+
+    formStudents[form].forEach(initial => {
         const opt = document.createElement("option");
-        opt.value = i;
-        opt.textContent = `${i} (${formSelect.value})`;
+        opt.value = initial;
+        opt.textContent = `${initial} (${form})`;
         initialsSelect.appendChild(opt);
     });
 });
 
-/* -----------------------------------------
-   CAMERA: AUTO OPEN WITH FALLBACK
------------------------------------------ */
-let qr = null;
+/* ----------------------------------------------------------
+   CAMERA SCANNER — STABLE VERSION
+----------------------------------------------------------- */
+let html5Qr = null;
 
-async function tryAutoStartCamera() {
+async function startScanner() {
     try {
         const cameras = await Html5Qrcode.getCameras();
-        if (!cameras.length) throw "No cameras found";
+        if (!cameras.length) return alert("No camera detected.");
 
-        const rear = cameras.find(c => 
+        const rearCam = cameras.find(c =>
             c.label.toLowerCase().includes("back") ||
             c.label.toLowerCase().includes("rear")
         );
+        const camId = rearCam ? rearCam.id : cameras[0].id;
 
-        const cameraId = rear ? rear.id : cameras[0].id;
+        html5Qr = new Html5Qrcode("reader");
 
-        qr = new Html5Qrcode("reader");
+        document.getElementById("reader").style.display = "block";
 
-        await qr.start(cameraId, { fps: 10, qrbox: { width: 250, height: 150 } },
+        await html5Qr.start(
+            camId,
+            { fps: 10, qrbox: { width: 250, height: 140 } },
             text => {
-                barcodeInput.value = text;
-                qr.stop();
+                document.getElementById("barcodeInput").value = text;
+                html5Qr.stop();
+                document.getElementById("reader").style.display = "none";
             }
         );
 
-        // SUCCESS: show camera, hide fallback
-        reader.style.display = "block";
-        tapToStart.style.display = "none";
-
-    } catch (err) {
-        // FAIL: Show tap-to-start button
-        reader.style.display = "none";
-        tapToStart.style.display = "block";
+    } catch (e) {
+        console.error(e);
+        alert("Camera cannot start. Check permissions.");
     }
 }
 
-// fallback handler
-tapToStart.addEventListener("click", async () => {
-    tapToStart.textContent = "Opening camera...";
+document.getElementById("startScanButton").addEventListener("click", startScanner);
 
-    try {
-        await tryAutoStartCamera();
-    } catch {
-        tapToStart.textContent = "Tap to Start Scanner";
-    }
-});
-
-// try auto start
-window.onload = tryAutoStartCamera;
-
-/* -----------------------------------------
-   UNIVERSAL ISBN CLEANING + LOOKUP
------------------------------------------ */
-function extractISBN(raw) {
+/* ----------------------------------------------------------
+   ISBN CLEANER + GOOGLE LOOKUP
+----------------------------------------------------------- */
+function cleanISBN(raw) {
     const digits = raw.replace(/\D/g, "");
-    if (digits.length >= 10 && digits.length <= 13) return digits;
-
-    const sub13 = digits.match(/\d{13}/);
-    if (sub13) return sub13[0];
-
-    const sub10 = digits.match(/\d{10}/);
-    if (sub10) return sub10[0];
-
-    return digits;
+    return digits.length >= 10 ? digits : raw;
 }
 
-function ean13ToIsbn10(ean) {
-    if (!ean.startsWith("978")) return null;
-    let core = ean.substring(3, 12);
-    let sum = 0;
-    for (let i = 0; i < 9; i++) sum += (10 - i) * parseInt(core[i]);
-    let check = 11 - (sum % 11);
-    if (check === 10) check = "X";
-    if (check === 11) check = "0";
-    return core + check;
-}
+async function lookupBook(isbn) {
+    isbn = cleanISBN(isbn);
 
-async function lookupBook(raw) {
-    let isbn = extractISBN(raw);
-    let urls = [];
-
-    if (isbn.length === 13)
-        urls.push(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-
-    if (isbn.length === 13)
-        urls.push(`https://www.googleapis.com/books/v1/volumes?q=isbn:${ean13ToIsbn10(isbn)}`);
-
-    if (isbn.length === 10)
-        urls.push(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`);
-
-    urls.push(`https://www.googleapis.com/books/v1/volumes?q=${raw}`);
-
-    for (let url of urls) {
-        try {
-            let res = await fetch(url);
-            let data = await res.json();
-            if (data.items) {
-                let info = data.items[0].volumeInfo;
-                return {
-                    title: info.title || "Unknown",
-                    author: info.authors?.[0] || "Unknown",
-                    cover: info.imageLinks?.thumbnail || ""
-                };
-            }
-        } catch {}
-    }
+    const url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
+    try {
+        const data = await (await fetch(url)).json();
+        if (data.items) {
+            const info = data.items[0].volumeInfo;
+            return {
+                title: info.title || "Unknown",
+                author: info.authors?.[0] || "Unknown",
+                cover: info.imageLinks?.thumbnail || ""
+            };
+        }
+    } catch {}
 
     return { title: "Unknown", author: "Unknown", cover: "" };
 }
 
-/* -----------------------------------------
-   PROCESS LOAN / RETURN
------------------------------------------ */
+/* ----------------------------------------------------------
+   PROCESS LOAN
+----------------------------------------------------------- */
 let loanDB = {};
 
-async function processScan() {
-    const code = barcodeInput.value.trim();
-    if (!code || !actionSelect.value || !formSelect.value || !initialsSelect.value) {
-        alert("Fill all fields.");
-        return;
-    }
+document.getElementById("continueButton").addEventListener("click", async function() {
 
-    const book = await lookupBook(code);
+    const barcode = document.getElementById("barcodeInput").value;
+    const action = document.getElementById("actionSelect").value;
+    const form = document.getElementById("formSelect").value;
+    const initials = document.getElementById("initialsSelect").value;
+
+    if (!barcode || !action || !form || !initials)
+        return alert("Please fill in all fields and scan a book.");
+
+    const book = await lookupBook(barcode);
+
+    if (!loanDB[barcode]) loanDB[barcode] = {};
+
     const today = new Date().toLocaleDateString();
 
-    if (!loanDB[code]) loanDB[code] = {};
-    if (actionSelect.value === "loan") loanDB[code].loan = today;
-    if (actionSelect.value === "return") loanDB[code].return = today;
+    if (action === "loan") loanDB[barcode].loan = today;
+    if (action === "return") loanDB[barcode].return = today;
 
-    loanDB[code].form = formSelect.value;
-    loanDB[code].initials = initialsSelect.value;
+    loanDB[barcode].form = form;
+    loanDB[barcode].initials = initials;
 
-    showSummary(book, actionSelect.value, code);
-}
+    // Show summary
+    document.getElementById("scan-screen").style.display = "none";
+    document.getElementById("summary-screen").style.display = "block";
 
-/* -----------------------------------------
-   SUMMARY SCREEN
------------------------------------------ */
-function showSummary(book, action, code) {
-    scan-screen.style.display = "none";
-    summary-screen.style.display = "block";
-
-    const record = loanDB[code];
-
-    summaryForm.innerHTML = `<strong>Form:</strong> ${record.form}`;
-    summaryName.innerHTML = `<strong>Name:</strong> ${record.initials}`;
-    summaryBook.innerHTML = `<strong>Book:</strong> ${book.title}`;
-    summaryAuthor.innerHTML = `<strong>Author:</strong> ${book.author}`;
-    summaryStatus.innerHTML = `<strong>Status:</strong> ${action}`;
-    summaryDate.innerHTML = `<strong>Today:</strong> ${new Date().toLocaleDateString()}`;
-    summaryLoanDate.innerHTML = `<strong>Date Loaned:</strong> ${record.loan || "—"}`;
-    summaryReturnDate.innerHTML = `<strong>Date Returned:</strong> ${record.return || "—"}`;
+    document.getElementById("summaryForm").innerHTML = `<b>Form:</b> ${form}`;
+    document.getElementById("summaryInitials").innerHTML = `<b>Name:</b> ${initials}`;
+    document.getElementById("summaryBook").innerHTML = `<b>Book:</b> ${book.title}`;
+    document.getElementById("summaryAuthor").innerHTML = `<b>Author:</b> ${book.author}`;
+    document.getElementById("summaryAction").innerHTML = `<b>Status:</b> ${action === "loan" ? "Signed Out" : "Returned"}`;
+    document.getElementById("summaryDate").innerHTML = `<b>Date:</b> ${today}`;
+    document.getElementById("summaryLoan").innerHTML = `<b>Date Loaned:</b> ${loanDB[barcode].loan || "—"}`;
+    document.getElementById("summaryReturn").innerHTML = `<b>Date Returned:</b> ${loanDB[barcode].return || "—"}`;
 
     if (book.cover) {
-        summaryCover.src = book.cover;
-        summaryCover.style.display = "block";
-    } else {
-        summaryCover.style.display = "none";
+        const img = document.getElementById("summaryCover");
+        img.src = book.cover;
+        img.style.display = "block";
     }
-}
+});
 
-/* -----------------------------------------
+/* ----------------------------------------------------------
    RESET
------------------------------------------ */
+----------------------------------------------------------- */
 function resetForm() {
-    scan-screen.style.display = "block";
-    summary-screen.style.display = "none";
+    document.getElementById("scan-screen").style.display = "block";
+    document.getElementById("summary-screen").style.display = "none";
 
-    barcodeInput.value = "";
-    actionSelect.value = "";
-    formSelect.value = "";
-    initialsSelect.innerHTML = `<option value="">Choose initials...</option>`;
-
-    tryAutoStartCamera();
+    document.getElementById("barcodeInput").value = "";
+    document.getElementById("formSelect").value = "";
+    document.getElementById("initialsSelect").innerHTML = `<option value="">Select Initials…</option>`;
 }
-</script>
 
+</script>
 </body>
 </html>
