@@ -5,12 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ST PHILIP'S LIBRARY BOOK LOAN/RETURN</title>
 
-<!-- Styling -->
 <style>
-    * {
-        box-sizing: border-box;
-        font-family: Arial, sans-serif !important;
-    }
+    * { box-sizing: border-box; font-family: Arial, sans-serif !important; }
 
     body {
         margin: 0;
@@ -39,9 +35,8 @@
     h1 {
         font-size: 26px;
         font-weight: bold;
-        margin-bottom: 20px;
         text-transform: uppercase;
-        text-align: center;
+        margin-bottom: 20px;
     }
 
     button, select {
@@ -72,6 +67,15 @@
         margin-top: 15px;
     }
 
+    #manualTitleInput {
+        padding: 12px;
+        width: 100%;
+        margin-top: 10px;
+        border-radius: 10px;
+        border: none;
+        font-size: 18px;
+    }
+
     #summary-screen { display: none; }
 
     #summaryCover {
@@ -90,10 +94,22 @@
 
     <h1>ST PHILIP'S LIBRARY BOOK LOAN/RETURN</h1>
 
+    <!-- SCAN BUTTON -->
     <button id="startScanButton">SCAN BAR CODE HERE</button>
 
+    <!-- MANUAL TITLE BUTTON -->
+    <button id="manualTitleButton">ENTER TITLE MANUALLY</button>
+
+    <!-- MANUAL TITLE AREA -->
+    <div id="manualTitleArea" style="display:none;">
+        <input id="manualTitleInput" type="text" placeholder="Type book title…">
+        <button id="manualSearchButton">SEARCH TITLE</button>
+    </div>
+
+    <!-- CAMERA -->
     <div id="reader"></div>
 
+    <!-- Hidden book input -->
     <input type="hidden" id="barcodeInput">
 
     <h3>Action</h3>
@@ -119,7 +135,6 @@
     </select>
 
     <button id="continueButton">Continue</button>
-
 </div>
 
 <!-- SUMMARY SCREEN -->
@@ -141,13 +156,11 @@
     <button onclick="resetForm()">Scan Another Book</button>
 </div>
 
-<!-- CAMERA LIBRARY -->
 <script src="https://unpkg.com/html5-qrcode"></script>
 
-<!-- MAIN SCRIPT -->
 <script>
 /* ----------------------------------------------------------
-   FORM → INITIALS DATA
+   FORM → INITIALS
 ----------------------------------------------------------- */
 const formStudents = {
     "Form 8": ["JC","ADB","CG","JG","RH","KH","AL","LLV","WN","IO","MP","HP","Ase","Ast","ST","AT","CW"],
@@ -158,14 +171,9 @@ const formStudents = {
     "Form 3": ["PA","PC","WH","BH"]
 };
 
-/* ----------------------------------------------------------
-   INITIALS DROPDOWN POPULATION — CLEAN, SAFE VERSION
------------------------------------------------------------ */
-document.getElementById("formSelect").addEventListener("change", function() {
-
+document.getElementById("formSelect").addEventListener("change", function () {
     const form = this.value;
     const initialsSelect = document.getElementById("initialsSelect");
-
     initialsSelect.innerHTML = `<option value="">Select Initials…</option>`;
 
     if (!formStudents[form]) return;
@@ -179,55 +187,68 @@ document.getElementById("formSelect").addEventListener("change", function() {
 });
 
 /* ----------------------------------------------------------
-   CAMERA SCANNER — STABLE VERSION
+   CAMERA SCANNER
 ----------------------------------------------------------- */
-let html5Qr = null;
+let qrScanner = null;
 
 async function startScanner() {
     try {
         const cameras = await Html5Qrcode.getCameras();
         if (!cameras.length) return alert("No camera detected.");
 
-        const rearCam = cameras.find(c =>
-            c.label.toLowerCase().includes("back") ||
-            c.label.toLowerCase().includes("rear")
+        const rearCam = cameras.find(cam =>
+            cam.label.toLowerCase().includes("back") ||
+            cam.label.toLowerCase().includes("rear")
         );
+
         const camId = rearCam ? rearCam.id : cameras[0].id;
 
-        html5Qr = new Html5Qrcode("reader");
-
+        qrScanner = new Html5Qrcode("reader");
         document.getElementById("reader").style.display = "block";
 
-        await html5Qr.start(
+        await qrScanner.start(
             camId,
             { fps: 10, qrbox: { width: 250, height: 140 } },
             text => {
                 document.getElementById("barcodeInput").value = text;
-                html5Qr.stop();
+                qrScanner.stop();
                 document.getElementById("reader").style.display = "none";
             }
         );
 
-    } catch (e) {
-        console.error(e);
-        alert("Camera cannot start. Check permissions.");
+    } catch (err) {
+        console.error(err);
+        alert("Unable to start camera. Check permissions.");
     }
 }
 
 document.getElementById("startScanButton").addEventListener("click", startScanner);
 
 /* ----------------------------------------------------------
-   ISBN CLEANER + GOOGLE LOOKUP
+   MANUAL TITLE SEARCH
 ----------------------------------------------------------- */
-function cleanISBN(raw) {
-    const digits = raw.replace(/\D/g, "");
-    return digits.length >= 10 ? digits : raw;
-}
+document.getElementById("manualTitleButton").addEventListener("click", () => {
+    const area = document.getElementById("manualTitleArea");
+    area.style.display = area.style.display === "none" ? "block" : "none";
+});
 
-async function lookupBook(isbn) {
-    isbn = cleanISBN(isbn);
+document.getElementById("manualSearchButton").addEventListener("click", () => {
+    const typed = document.getElementById("manualTitleInput").value.trim();
+    if (!typed) return alert("Please type a book title.");
 
-    const url = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`;
+    document.getElementById("barcodeInput").value = typed;
+
+    alert("Title saved! Press CONTINUE to process.");
+});
+
+/* ----------------------------------------------------------
+   ISBN / TITLE LOOKUP
+----------------------------------------------------------- */
+async function lookupBook(raw) {
+    const clean = raw.replace(/\s+/g, "+");
+
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${clean}`;
+
     try {
         const data = await (await fetch(url)).json();
         if (data.items) {
@@ -244,33 +265,33 @@ async function lookupBook(isbn) {
 }
 
 /* ----------------------------------------------------------
-   PROCESS LOAN
+   PROCESS LOAN / RETURN
 ----------------------------------------------------------- */
 let loanDB = {};
 
-document.getElementById("continueButton").addEventListener("click", async function() {
+document.getElementById("continueButton").addEventListener("click", async function () {
 
-    const barcode = document.getElementById("barcodeInput").value;
+    const code = document.getElementById("barcodeInput").value.trim();
     const action = document.getElementById("actionSelect").value;
     const form = document.getElementById("formSelect").value;
     const initials = document.getElementById("initialsSelect").value;
 
-    if (!barcode || !action || !form || !initials)
-        return alert("Please fill in all fields and scan a book.");
+    if (!code || !action || !form || !initials)
+        return alert("Please fill all fields and scan or enter a title.");
 
-    const book = await lookupBook(barcode);
+    const book = await lookupBook(code);
 
-    if (!loanDB[barcode]) loanDB[barcode] = {};
+    if (!loanDB[code]) loanDB[code] = {};
 
     const today = new Date().toLocaleDateString();
 
-    if (action === "loan") loanDB[barcode].loan = today;
-    if (action === "return") loanDB[barcode].return = today;
+    if (action === "loan") loanDB[code].loan = today;
+    if (action === "return") loanDB[code].return = today;
 
-    loanDB[barcode].form = form;
-    loanDB[barcode].initials = initials;
+    loanDB[code].form = form;
+    loanDB[code].initials = initials;
 
-    // Show summary
+    // SWITCH TO SUMMARY SCREEN
     document.getElementById("scan-screen").style.display = "none";
     document.getElementById("summary-screen").style.display = "block";
 
@@ -280,8 +301,8 @@ document.getElementById("continueButton").addEventListener("click", async functi
     document.getElementById("summaryAuthor").innerHTML = `<b>Author:</b> ${book.author}`;
     document.getElementById("summaryAction").innerHTML = `<b>Status:</b> ${action === "loan" ? "Signed Out" : "Returned"}`;
     document.getElementById("summaryDate").innerHTML = `<b>Date:</b> ${today}`;
-    document.getElementById("summaryLoan").innerHTML = `<b>Date Loaned:</b> ${loanDB[barcode].loan || "—"}`;
-    document.getElementById("summaryReturn").innerHTML = `<b>Date Returned:</b> ${loanDB[barcode].return || "—"}`;
+    document.getElementById("summaryLoan").innerHTML = `<b>Date Loaned:</b> ${loanDB[code].loan || "—"}`;
+    document.getElementById("summaryReturn").innerHTML = `<b>Date Returned:</b> ${loanDB[code].return || "—"}`;
 
     if (book.cover) {
         const img = document.getElementById("summaryCover");
@@ -291,17 +312,19 @@ document.getElementById("continueButton").addEventListener("click", async functi
 });
 
 /* ----------------------------------------------------------
-   RESET
+   RESET FORM
 ----------------------------------------------------------- */
 function resetForm() {
-    document.getElementById("scan-screen").style.display = "block";
     document.getElementById("summary-screen").style.display = "none";
+    document.getElementById("scan-screen").style.display = "block";
 
     document.getElementById("barcodeInput").value = "";
+    document.getElementById("manualTitleInput").value = "";
+    document.getElementById("manualTitleArea").style.display = "none";
     document.getElementById("formSelect").value = "";
     document.getElementById("initialsSelect").innerHTML = `<option value="">Select Initials…</option>`;
 }
-
 </script>
+
 </body>
 </html>
