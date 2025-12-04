@@ -6,7 +6,10 @@
 <title>ST PHILIP'S LIBRARY BOOK LOAN/RETURN</title>
 
 <style>
-    * { box-sizing: border-box; font-family: Arial, sans-serif !important; }
+    * {
+        box-sizing: border-box;
+        font-family: Arial, sans-serif !important;
+    }
 
     body {
         margin: 0;
@@ -29,7 +32,7 @@
 
     @keyframes fadeIn {
         from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
+        to   { opacity: 1; transform: translateY(0); }
     }
 
     h1 {
@@ -58,8 +61,14 @@
         text-transform: uppercase;
     }
 
-    button:hover { transform: scale(1.03); opacity: 0.9; }
-    button:active { transform: scale(0.95); }
+    button:hover {
+        transform: scale(1.03);
+        opacity: 0.9;
+    }
+
+    button:active {
+        transform: scale(0.95);
+    }
 
     #reader {
         width: 100%;
@@ -76,7 +85,9 @@
         font-size: 18px;
     }
 
-    #summary-screen { display: none; }
+    #summary-screen {
+        display: none;
+    }
 
     #summaryCover {
         max-width: 180px;
@@ -84,9 +95,61 @@
         display: none;
         border-radius: 8px;
     }
+
+    /* Results list */
+    #resultsContainer {
+        margin-top: 15px;
+    }
+
+    .results-title {
+        margin-top: 10px;
+        font-weight: bold;
+    }
+
+    .book-card {
+        background: rgba(255,255,255,0.15);
+        border-radius: 12px;
+        padding: 12px;
+        margin-top: 10px;
+        text-align: left;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .book-card img {
+        width: 60px;
+        height: 90px;
+        object-fit: cover;
+        border-radius: 6px;
+        flex-shrink: 0;
+    }
+
+    .book-info {
+        flex: 1;
+    }
+
+    .book-info h4 {
+        margin: 0 0 4px 0;
+        font-size: 16px;
+        font-weight: bold;
+    }
+
+    .book-info p {
+        margin: 0;
+        font-size: 14px;
+    }
+
+    .book-card button {
+        width: auto;
+        padding: 8px 12px;
+        font-size: 14px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
 </style>
 </head>
-
 <body>
 
 <!-- MAIN SCREEN -->
@@ -94,22 +157,23 @@
 
     <h1>ST PHILIP'S LIBRARY BOOK LOAN/RETURN</h1>
 
-    <!-- SCAN BUTTON -->
+    <!-- Scan Button -->
     <button id="startScanButton">SCAN BAR CODE HERE</button>
 
-    <!-- MANUAL TITLE BUTTON -->
+    <!-- Manual Title Button -->
     <button id="manualTitleButton">ENTER TITLE MANUALLY</button>
 
-    <!-- MANUAL TITLE AREA -->
+    <!-- Manual Title Area -->
     <div id="manualTitleArea" style="display:none;">
         <input id="manualTitleInput" type="text" placeholder="Type book title…">
         <button id="manualSearchButton">SEARCH TITLE</button>
+        <div id="resultsContainer"></div>
     </div>
 
-    <!-- CAMERA -->
+    <!-- Camera View -->
     <div id="reader"></div>
 
-    <!-- Hidden book input -->
+    <!-- Hidden field (not heavily used now, but kept for flexibility) -->
     <input type="hidden" id="barcodeInput">
 
     <h3>Action</h3>
@@ -134,7 +198,6 @@
         <option value="">Select Initials…</option>
     </select>
 
-    <button id="continueButton">Continue</button>
 </div>
 
 <!-- SUMMARY SCREEN -->
@@ -194,13 +257,15 @@ let qrScanner = null;
 async function startScanner() {
     try {
         const cameras = await Html5Qrcode.getCameras();
-        if (!cameras.length) return alert("No camera detected.");
+        if (!cameras.length) {
+            alert("No camera detected.");
+            return;
+        }
 
         const rearCam = cameras.find(cam =>
             cam.label.toLowerCase().includes("back") ||
             cam.label.toLowerCase().includes("rear")
         );
-
         const camId = rearCam ? rearCam.id : cameras[0].id;
 
         qrScanner = new Html5Qrcode("reader");
@@ -209,8 +274,9 @@ async function startScanner() {
         await qrScanner.start(
             camId,
             { fps: 10, qrbox: { width: 250, height: 140 } },
-            text => {
-                document.getElementById("barcodeInput").value = text;
+            scannedText => {
+                // When a barcode is scanned, we use it directly as query
+                handleSelectionFromQuery(scannedText);
                 qrScanner.stop();
                 document.getElementById("reader").style.display = "none";
             }
@@ -225,73 +291,150 @@ async function startScanner() {
 document.getElementById("startScanButton").addEventListener("click", startScanner);
 
 /* ----------------------------------------------------------
-   MANUAL TITLE SEARCH
+   GOOGLE BOOKS – SEARCH & LOOKUP
 ----------------------------------------------------------- */
-document.getElementById("manualTitleButton").addEventListener("click", () => {
-    const area = document.getElementById("manualTitleArea");
-    area.style.display = area.style.display === "none" ? "block" : "none";
-});
 
-document.getElementById("manualSearchButton").addEventListener("click", () => {
-    const typed = document.getElementById("manualTitleInput").value.trim();
-    if (!typed) return alert("Please type a book title.");
-
-    document.getElementById("barcodeInput").value = typed;
-
-    alert("Title saved! Press CONTINUE to process.");
-});
-
-/* ----------------------------------------------------------
-   ISBN / TITLE LOOKUP
------------------------------------------------------------ */
-async function lookupBook(raw) {
-    const clean = raw.replace(/\s+/g, "+");
-
-    const url = `https://www.googleapis.com/books/v1/volumes?q=${clean}`;
+// Search for top 5 matches (for manual title)
+async function searchBooks(query) {
+    const encoded = encodeURIComponent(query);
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${encoded}&maxResults=5`;
 
     try {
-        const data = await (await fetch(url)).json();
-        if (data.items) {
-            const info = data.items[0].volumeInfo;
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!data.items) return [];
+
+        return data.items.map(item => {
+            const info = item.volumeInfo;
             return {
-                title: info.title || "Unknown",
-                author: info.authors?.[0] || "Unknown",
-                cover: info.imageLinks?.thumbnail || ""
+                id: item.id,
+                title: info.title || "Unknown title",
+                author: (info.authors && info.authors[0]) || "Unknown author",
+                thumbnail: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail || "") : ""
+            };
+        });
+    } catch (err) {
+        console.error(err);
+        return [];
+    }
+}
+
+// Lookup a single book (for barcode/ISBN; take the first result)
+async function lookupSingleBook(query) {
+    const encoded = encodeURIComponent(query);
+    const url = `https://www.googleapis.com/books/v1/volumes?q=${encoded}&maxResults=1`;
+
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (!data.items || !data.items[0]) {
+            return {
+                id: query,
+                title: "Unknown Book",
+                author: "Unknown Author",
+                thumbnail: ""
             };
         }
-    } catch {}
-
-    return { title: "Unknown", author: "Unknown", cover: "" };
+        const item = data.items[0];
+        const info = item.volumeInfo;
+        return {
+            id: item.id,
+            title: info.title || "Unknown Book",
+            author: (info.authors && info.authors[0]) || "Unknown Author",
+            thumbnail: info.imageLinks ? (info.imageLinks.thumbnail || info.imageLinks.smallThumbnail || "") : ""
+        };
+    } catch (err) {
+        console.error(err);
+        return {
+            id: query,
+            title: "Unknown Book",
+            author: "Unknown Author",
+            thumbnail: ""
+        };
+    }
 }
 
 /* ----------------------------------------------------------
-   PROCESS LOAN / RETURN
+   VISUAL RESULTS LIST (CARDS)
+----------------------------------------------------------- */
+function renderResults(books, originalQuery) {
+    const container = document.getElementById("resultsContainer");
+    container.innerHTML = "";
+
+    if (!books.length) {
+        container.innerHTML = "<p>No results found.</p>";
+        return;
+    }
+
+    const title = document.createElement("div");
+    title.className = "results-title";
+    title.textContent = "Select the correct book:";
+    container.appendChild(title);
+
+    books.forEach(book => {
+        const card = document.createElement("div");
+        card.className = "book-card";
+
+        const img = document.createElement("img");
+        img.src = book.thumbnail || "";
+        img.alt = book.title;
+        if (!book.thumbnail) {
+            img.style.display = "none";
+        }
+
+        const infoDiv = document.createElement("div");
+        infoDiv.className = "book-info";
+
+        const h4 = document.createElement("h4");
+        h4.textContent = book.title;
+
+        const p = document.createElement("p");
+        p.textContent = `Author: ${book.author}`;
+
+        infoDiv.appendChild(h4);
+        infoDiv.appendChild(p);
+
+        const selBtn = document.createElement("button");
+        selBtn.textContent = "SELECT";
+        selBtn.addEventListener("click", () => {
+            finalizeSelection(book);
+        });
+
+        card.appendChild(img);
+        card.appendChild(infoDiv);
+        card.appendChild(selBtn);
+
+        container.appendChild(card);
+    });
+}
+
+/* ----------------------------------------------------------
+   AUTO PROCESS AFTER SELECTION / SCAN
 ----------------------------------------------------------- */
 let loanDB = {};
 
-document.getElementById("continueButton").addEventListener("click", async function () {
-
-    const code = document.getElementById("barcodeInput").value.trim();
+function finalizeSelection(book) {
     const action = document.getElementById("actionSelect").value;
     const form = document.getElementById("formSelect").value;
     const initials = document.getElementById("initialsSelect").value;
 
-    if (!code || !action || !form || !initials)
-        return alert("Please fill all fields and scan or enter a title.");
+    if (!action || !form || !initials) {
+        alert("Please select Action, Form, and Initials first.");
+        return;
+    }
 
-    const book = await lookupBook(code);
-
-    if (!loanDB[code]) loanDB[code] = {};
-
+    const key = book.id || book.title;
     const today = new Date().toLocaleDateString();
 
-    if (action === "loan") loanDB[code].loan = today;
-    if (action === "return") loanDB[code].return = today;
+    if (!loanDB[key]) loanDB[key] = {};
 
-    loanDB[code].form = form;
-    loanDB[code].initials = initials;
+    if (action === "loan") loanDB[key].loan = today;
+    if (action === "return") loanDB[key].return = today;
 
-    // SWITCH TO SUMMARY SCREEN
+    loanDB[key].form = form;
+    loanDB[key].initials = initials;
+
+    // Show summary
     document.getElementById("scan-screen").style.display = "none";
     document.getElementById("summary-screen").style.display = "block";
 
@@ -299,30 +442,63 @@ document.getElementById("continueButton").addEventListener("click", async functi
     document.getElementById("summaryInitials").innerHTML = `<b>Name:</b> ${initials}`;
     document.getElementById("summaryBook").innerHTML = `<b>Book:</b> ${book.title}`;
     document.getElementById("summaryAuthor").innerHTML = `<b>Author:</b> ${book.author}`;
-    document.getElementById("summaryAction").innerHTML = `<b>Status:</b> ${action === "loan" ? "Signed Out" : "Returned"}`;
+    document.getElementById("summaryAction").innerHTML =
+        `<b>Status:</b> ${action === "loan" ? "Signed Out" : "Returned"}`;
     document.getElementById("summaryDate").innerHTML = `<b>Date:</b> ${today}`;
-    document.getElementById("summaryLoan").innerHTML = `<b>Date Loaned:</b> ${loanDB[code].loan || "—"}`;
-    document.getElementById("summaryReturn").innerHTML = `<b>Date Returned:</b> ${loanDB[code].return || "—"}`;
+    document.getElementById("summaryLoan").innerHTML =
+        `<b>Date Loaned:</b> ${loanDB[key].loan || "—"}`;
+    document.getElementById("summaryReturn").innerHTML =
+        `<b>Date Returned:</b> ${loanDB[key].return || "—"}`;
 
-    if (book.cover) {
-        const img = document.getElementById("summaryCover");
-        img.src = book.cover;
+    const img = document.getElementById("summaryCover");
+    if (book.thumbnail) {
+        img.src = book.thumbnail;
         img.style.display = "block";
+    } else {
+        img.style.display = "none";
     }
+}
+
+/* ----------------------------------------------------------
+   HANDLE QUERY FROM SCANNER (NO LIST, JUST FIRST MATCH)
+----------------------------------------------------------- */
+async function handleSelectionFromQuery(query) {
+    const book = await lookupSingleBook(query);
+    finalizeSelection(book);
+}
+
+/* ----------------------------------------------------------
+   MANUAL TITLE FLOW
+----------------------------------------------------------- */
+document.getElementById("manualTitleButton").addEventListener("click", () => {
+    const area = document.getElementById("manualTitleArea");
+    area.style.display = area.style.display === "none" ? "block" : "none";
+    document.getElementById("resultsContainer").innerHTML = "";
+});
+
+document.getElementById("manualSearchButton").addEventListener("click", async () => {
+    const typed = document.getElementById("manualTitleInput").value.trim();
+    if (!typed) {
+        alert("Type a title first.");
+        return;
+    }
+    const books = await searchBooks(typed);
+    renderResults(books, typed);
 });
 
 /* ----------------------------------------------------------
-   RESET FORM
+   RESET
 ----------------------------------------------------------- */
 function resetForm() {
     document.getElementById("summary-screen").style.display = "none";
     document.getElementById("scan-screen").style.display = "block";
 
-    document.getElementById("barcodeInput").value = "";
-    document.getElementById("manualTitleInput").value = "";
     document.getElementById("manualTitleArea").style.display = "none";
+    document.getElementById("manualTitleInput").value = "";
+    document.getElementById("resultsContainer").innerHTML = "";
     document.getElementById("formSelect").value = "";
-    document.getElementById("initialsSelect").innerHTML = `<option value="">Select Initials…</option>`;
+    document.getElementById("initialsSelect").innerHTML =
+        `<option value="">Select Initials…</option>`;
 }
 </script>
 
