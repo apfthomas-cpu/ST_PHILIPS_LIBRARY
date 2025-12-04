@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Library Loan System</title>
+
+<style>
+    body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        background: url('Background.jpg') no-repeat center center fixed;
+        background-size: cover;
+        color: white;
+    }
+
+    .overlay-box {
+        background: rgba(0,0,0,0.55);
+        padding: 20px;
+        border-radius: 12px;
+        max-width: 450px;
+        margin: 20px auto;
+        text-align: center;
+    }
+
+    input, select, button {
+        width: 100%;
+        padding: 12px;
+        margin-top: 12px;
+        border-radius: 8px;
+        border: none;
+        font-size: 16px;
+    }
+
+    button {
+        cursor: pointer;
+        background: #4CAF50;
+        color: white;
+        font-size: 18px;
+    }
+
+    button:hover {
+        background: #45A049;
+    }
+
+    #summary-screen {
+        display: none;
+    }
+
+    #reader {
+        width: 100%;
+        margin: 0 auto 15px auto;
+    }
+
+    h2, h3 {
+        margin-top: 5px;
+        margin-bottom: 5px;
+    }
+</style>
+</head>
+
+<body>
+
+<!-- MAIN INPUT SCREEN -->
+<div id="scan-screen" class="overlay-box">
+    <h2>Library Book Loan / Return</h2>
+
+    <!-- CAMERA LIVE SCANNER -->
+    <div id="reader"></div>
+
+    <!-- MANUAL / HARDWARE SCANNER INPUT -->
+    <input id="barcodeInput" placeholder="Or scan/type barcode here..." />
+
+    <h3>Action</h3>
+    <select id="actionSelect">
+        <option value="">Choose...</option>
+        <option value="loan">Loan Out</option>
+        <option value="return">Return</option>
+    </select>
+
+    <h3>Form</h3>
+    <select id="formSelect">
+        <option value="">Choose form...</option>
+        <option value="Form 8">Form 8</option>
+        <option value="Form 7">Form 7</option>
+        <option value="Form 6">Form 6</option>
+        <option value="Form 5">Form 5</option>
+        <option value="Form 4">Form 4</option>
+        <option value="Form 3">Form 3</option>
+    </select>
+
+    <h3>Name (Initials)</h3>
+    <select id="initialsSelect">
+        <option value="">Choose initials...</option>
+        <!-- Filled dynamically based on form -->
+    </select>
+
+    <button onclick="processScan()">Continue</button>
+</div>
+
+<!-- SUMMARY SCREEN -->
+<div id="summary-screen" class="overlay-box">
+    <h2>Loan Summary</h2>
+    <p id="summaryForm"></p>
+    <p id="summaryName"></p>
+    <p id="summaryBook"></p>
+    <p id="summaryAuthor"></p>
+    <p id="summaryStatus"></p>
+    <p id="summaryDate"></p>
+    <p id="summaryLoanDate"></p>
+    <p id="summaryReturnDate"></p>
+
+    <button onclick="resetForm()">Scan Another Book</button>
+</div>
+
+<!-- Html5-QRCode Library -->
+<script src="https://unpkg.com/html5-qrcode"></script>
+
+<script>
+    // -------------------------------
+    // BOOK DATABASE (example only)
+    // Replace / expand with your real data
+    // -------------------------------
+    const bookDatabase = {
+        "9780140328721": { title: "Matilda", author: "Roald Dahl" },
+        "9780439064873": { title: "Harry Potter and the Chamber of Secrets", author: "J.K. Rowling" },
+        "9780439136365": { title: "Harry Potter and the Prisoner of Azkaban", author: "J.K. Rowling" }
+        // Add more barcode: {title, author} pairs here
+    };
+
+    // -------------------------------
+    // FORM → INITIALS DATA (from your table)
+    // -------------------------------
+    const formStudents = {
+        "Form 8": ["JC","ADB","CG","JG","RH","KH","AL","LLV","WN","IO","MP","HP","Ase","Ast","ST","AT","CW"],
+        "Form 7": ["DAB","EC","TE","DE-S","PH-S","CH","NJ","LLFP","TM","LP","SS","AS","TS"],
+        "Form 6": ["MA","EC","MH","PM","AP","MT"],
+        "Form 5": ["PC","GH","CH","SH","EL","MM","RM","PS","OS","MT","AT","TW","BW"],
+        "Form 4": ["AWAM","BC","HD","NN","ZJ","LN","PP","KP","NS","GSP","BT"],
+        "Form 3": ["PA","PC","WH","BH"]
+    };
+
+    // Fill initials dropdown when a form is selected
+    const formSelect = document.getElementById("formSelect");
+    const initialsSelect = document.getElementById("initialsSelect");
+
+    formSelect.addEventListener("change", function () {
+        const formName = this.value;
+        populateInitials(formName);
+    });
+
+    function populateInitials(formName) {
+        // Clear existing options
+        initialsSelect.innerHTML = "";
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = "Choose initials...";
+        initialsSelect.appendChild(defaultOption);
+
+        if (!formName || !formStudents[formName]) return;
+
+        const students = formStudents[formName];
+        students.forEach(initials => {
+            const opt = document.createElement("option");
+            opt.value = initials;
+            opt.textContent = `${initials} (${formName})`;
+            initialsSelect.appendChild(opt);
+        });
+    }
+
+    // -------------------------------
+    // LOAN STORAGE (in memory only)
+    // -------------------------------
+    let loanRecords = {};
+
+    // -------------------------------
+    // CAMERA SCANNER INITIALISATION
+    // -------------------------------
+    let html5QrCode = null;
+
+    function startCameraScanner() {
+        const readerId = "reader";
+
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode(readerId);
+        }
+
+        Html5Qrcode.getCameras().then(cameras => {
+            if (cameras && cameras.length) {
+                const cameraId = cameras[0].id;  // use first available camera
+
+                html5QrCode.start(
+                    cameraId,
+                    {
+                        fps: 10,
+                        qrbox: { width: 250, height: 150 }
+                    },
+                    decodedText => {
+                        // When a barcode/QR is successfully read:
+                        document.getElementById("barcodeInput").value = decodedText;
+                        // Stop scanning until the next book
+                        html5QrCode.stop().catch(err => console.error("Stop failed:", err));
+                    },
+                    errorMessage => {
+                        // scan errors are frequent; ignore them
+                    }
+                ).catch(err => {
+                    console.error("Unable to start camera:", err);
+                });
+            }
+        }).catch(err => console.error("Camera access error:", err));
+    }
+
+    window.onload = startCameraScanner;
+
+    // -------------------------------
+    // PROCESS LOAN / RETURN
+    // -------------------------------
+    function processScan() {
+        const barcode = document.getElementById("barcodeInput").value.trim();
+        const action = document.getElementById("actionSelect").value;
+        const formName = document.getElementById("formSelect").value;
+        const initials = document.getElementById("initialsSelect").value;
+
+        if (!barcode || !action || !formName || !initials) {
+            alert("Please complete all fields (barcode, action, form, initials).");
+            return;
+        }
+
+        const book = bookDatabase[barcode] || {
+            title: "Unknown Book",
+            author: "Unknown Author"
+        };
+
+        const today = new Date().toLocaleDateString();
+
+        if (action === "loan") {
+            loanRecords[barcode] = {
+                loanedBy: initials,
+                form: formName,
+                dateLoaned: today
+            };
+        } else if (action === "return") {
+            if (!loanRecords[barcode]) {
+                loanRecords[barcode] = {
+                    loanedBy: initials,
+                    form: formName,
+                    dateLoaned: "Unknown"
+                };
+            } else {
+                loanRecords[barcode].loanedBy = initials;
+                loanRecords[barcode].form = formName;
+            }
+            loanRecords[barcode].dateReturned = today;
+        }
+
+        showSummary(book, action, initials, formName, loanRecords[barcode]);
+    }
+
+    // -------------------------------
+    // DISPLAY SUMMARY SCREEN
+    // -------------------------------
+    function showSummary(book, action, initials, formName, record) {
+        document.getElementById("scan-screen").style.display = "none";
+        document.getElementById("summary-screen").style.display = "block";
+
+        document.getElementById("summaryForm").innerHTML =
+            `<strong>Form:</strong> ${formName}`;
+
+        document.getElementById("summaryName").innerHTML =
+            `<strong>Name (Initials):</strong> ${initials}`;
+
+        document.getElementById("summaryBook").innerHTML =
+            `<strong>Book:</strong> ${book.title}`;
+
+        document.getElementById("summaryAuthor").innerHTML =
+            `<strong>Author:</strong> ${book.author}`;
+
+        document.getElementById("summaryStatus").innerHTML =
+            `<strong>Status:</strong> ${action === "loan" ? "Loaned Out" : "Returned"}`;
+
+        document.getElementById("summaryDate").innerHTML =
+            `<strong>Today's Date:</strong> ${new Date().toLocaleDateString()}`;
+
+        document.getElementById("summaryLoanDate").innerHTML =
+            `<strong>Date Loaned:</strong> ${record.dateLoaned || "—"}`;
+
+        document.getElementById("summaryReturnDate").innerHTML =
+            `<strong>Date Returned:</strong> ${record.dateReturned || "—"}`;
+    }
+
+    // -------------------------------
+    // RESET FOR NEXT SCAN
+    // -------------------------------
+    function resetForm() {
+        document.getElementById("scan-screen").style.display = "block";
+        document.getElementById("summary-screen").style.display = "none";
+
+        document.getElementById("barcodeInput").value = "";
+        document.getElementById("actionSelect").value = "";
+        document.getElementById("formSelect").value = "";
+        populateInitials(""); // clear initials dropdown
+        document.getElementById("initialsSelect").value = "";
+
+        // restart camera scanner for next book
+        startCameraScanner();
+    }
+</script>
+
+</body>
+</html>
