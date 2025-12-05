@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>St Philip's Library Dashboard</title>
+
+<style>
+    body {
+        margin: 0;
+        background: #8aaAAF;
+        font-family: Arial, sans-serif;
+        color: #09203f;
+    }
+
+    header {
+        background: #09203f;
+        color: white;
+        padding: 18px 28px;
+        font-size: 26px;
+        font-weight: bold;
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    header img {
+        height: 48px;
+    }
+
+    header span {
+        flex-grow: 1;
+        text-align: center;
+        font-size: 28px;
+        letter-spacing: 1px;
+    }
+
+    .scanButton {
+        padding: 10px 16px;
+        background: #fff4b8;
+        color: #09203f;
+        border-radius: 8px;
+        font-weight: bold;
+        cursor: pointer;
+        border: none;
+    }
+
+    .container { padding: 20px; }
+
+    .card {
+        background: white;
+        border-radius: 12px;
+        padding: 0;
+        margin-bottom: 25px;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.18);
+        overflow: hidden;
+    }
+
+    .card-header {
+        padding: 16px 20px;
+        background: #fff4b8;
+        cursor: pointer;
+        font-size: 20px;
+        font-weight: bold;
+        border-bottom: 2px solid #e5e5e5;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .card-header:hover {
+        background: #ffeFA0;
+    }
+
+    .card-content {
+        padding: 20px;
+        display: none;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    th, td {
+        padding: 10px;
+        border-bottom: 1px solid #ccc;
+    }
+
+    th {
+        background: #fff4b8;
+        font-weight: bold;
+        text-align: left;
+    }
+
+    #search {
+        padding: 10px;
+        width: 100%;
+        border-radius: 8px;
+        border: 1px solid #999;
+        margin-bottom: 15px;
+        font-size: 16px;
+    }
+
+    .overdueRow {
+        background: #ffd5d5;
+        color: #900;
+        font-weight: bold;
+    }
+
+    .status-badge {
+        padding: 6px 10px;
+        border-radius: 6px;
+        font-size: 13px;
+        color: white;
+    }
+    .out { background: #e69500; }
+    .available { background: #2c8a00; }
+    .overdue { background: #c70000; }
+    .returned { background: #555; }
+
+    /* Modal */
+    #modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        display: none;
+        align-items: center;
+        justify-content: center;
+    }
+    #modalContent {
+        background: white;
+        padding: 25px;
+        width: 90%;
+        max-width: 420px;
+        border-radius: 12px;
+        text-align: center;
+    }
+    #reader {
+        width: 300px;
+        margin: 10px auto;
+        display: none;
+    }
+
+</style>
+
+<script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+
+<body>
+
+<header>
+    <img src="Crest only grey background.png" alt="School Crest">
+    <span>St Philip's Library Dashboard</span>
+    <button class="scanButton" onclick="startScanner()">🔍 Scan Book</button>
+</header>
+
+<div class="container">
+
+    <!-- Search -->
+    <input id="search" type="text" placeholder="Search book title…">
+
+    <!-- BOOKS OUT -->
+    <div class="card">
+        <div class="card-header" onclick="toggleCard(this)">
+            Books Currently Out
+            <span>▼</span>
+        </div>
+        <div class="card-content">
+            <table id="outTable">
+                <thead>
+                    <tr>
+                        <th>Book</th>
+                        <th>Borrower</th>
+                        <th>Loan Date</th>
+                        <th>Days Out</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- BOOK AVAILABILITY -->
+    <div class="card">
+        <div class="card-header" onclick="toggleCard(this)">
+            Book Availability
+            <span>▼</span>
+        </div>
+        <div class="card-content">
+            <table id="inventoryTable">
+                <thead>
+                    <tr>
+                        <th>Book</th>
+                        <th>Author</th>
+                        <th>Status</th>
+                        <th>Borrower</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<!-- SCAN LOOKUP MODAL -->
+<div id="modal">
+    <div id="modalContent">
+        <h2>Book Lookup</h2>
+        <div id="modalResult">Scan a book…</div>
+        <div id="reader"></div>
+        <button onclick="closeModal()">Close</button>
+    </div>
+</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbx-43ZOhhXdDXO32jUSVdXHHAJ94PFwfuPOKhycQkuLyJtvyzkiFMIAl4THTdTHa3oRcw/exec";
+
+async function loadData() {
+    const response = await fetch(API_URL);
+    return await response.json();
+}
+
+function daysOut(dateStr) {
+    if (!dateStr) return "";
+    const d1 = new Date(dateStr);
+    const d2 = new Date();
+    return Math.floor((d2 - d1) / (1000 * 60 * 60 * 24));
+}
+
+function statusBadge(status) {
+    return `<span class="status-badge ${status}">${status}</span>`;
+}
+
+async function renderDashboard() {
+    const data = await loadData();
+    const searchTerm = document.getElementById("search").value.toLowerCase();
+
+    const outBody = document.querySelector("#outTable tbody");
+    const invBody = document.querySelector("#inventoryTable tbody");
+
+    outBody.innerHTML = "";
+    invBody.innerHTML = "";
+
+    data.forEach(row => {
+        const title = row.Title || "";
+        if (!title.toLowerCase().includes(searchTerm)) return;
+
+        const status = row.Status ? row.Status.toLowerCase() : "";
+        const borrower = row.Initials ? `${row.Initials} (${row.Form})` : "—";
+
+        // BOOKS OUT
+        if (status === "out" || status === "overdue") {
+            outBody.innerHTML += `
+                <tr class="${status === 'overdue' ? 'overdueRow' : ''}">
+                    <td>${row.Title}</td>
+                    <td>${borrower}</td>
+                    <td>${row["Loan Date"] || ""}</td>
+                    <td>${daysOut(row["Loan Date"])}</td>
+                    <td>${statusBadge(status)}</td>
+                </tr>`;
+        }
+
+        // INVENTORY
+        invBody.innerHTML += `
+            <tr>
+                <td>${row.Title}</td>
+                <td>${row.Author}</td>
+                <td>${statusBadge(status)}</td>
+                <td>${status !== 'available' ? borrower : "—"}</td>
+            </tr>`;
+    });
+}
+
+renderDashboard();
+document.getElementById("search").addEventListener("input", renderDashboard);
+
+/* COLLAPSIBLE SECTIONS */
+function toggleCard(header) {
+    const content = header.nextElementSibling;
+    const arrow = header.querySelector("span");
+
+    if (content.style.display === "block") {
+        content.style.display = "none";
+        arrow.textContent = "▼";
+    } else {
+        content.style.display = "block";
+        arrow.textContent = "▲";
+    }
+}
+
+/* SCANNER FEATURE */
+let scanner = null;
+
+function startScanner() {
+    document.getElementById("modal").style.display = "flex";
+    document.getElementById("reader").style.display = "block";
+
+    scanner = new Html5Qrcode("reader");
+    scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 250 },
+        async (decodedText) => {
+            showLookup(decodedText);
+            scanner.stop();
+            document.getElementById("reader").style.display = "none";
+        }
+    );
+}
+
+function closeModal() {
+    document.getElementById("modal").style.display = "none";
+    if (scanner) scanner.stop();
+}
+
+async function showLookup(bookID) {
+    const data = await loadData();
+    const result = data.find(r => r.BookID === bookID);
+
+    if (!result) {
+        document.getElementById("modalResult").innerHTML =
+            `<b>Book ID ${bookID} not found.</b>`;
+        return;
+    }
+
+    let borrower = result.Initials ? `${result.Initials} (${result.Form})` : "None";
+
+    let html = `
+        <h3>${result.Title}</h3>
+        <p><b>Status:</b> ${statusBadge(result.Status.toLowerCase())}</p>
+        <p><b>Borrower:</b> ${borrower}</p>
+        <p><b>Loan Date:</b> ${result["Loan Date"] || "—"}</p>
+        <p><b>Return Date:</b> ${result["Return Date"] || "—"}</p>
+        <p><b>Days Out:</b> ${daysOut(result["Loan Date"])}</p>
+    `;
+
+    document.getElementById("modalResult").innerHTML = html;
+}
+</script>
+
+</body>
+</html>

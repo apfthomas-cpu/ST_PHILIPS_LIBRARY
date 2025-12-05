@@ -8,7 +8,7 @@
 <style>
 * {
     box-sizing: border-box;
-    font-family: Arial, sans-serif !important;
+    font-family: Arial, sans-serif;
 }
 
 body {
@@ -16,6 +16,12 @@ body {
     background: url('Background.jpg') no-repeat center center fixed;
     background-size: cover;
     color: white;
+
+    /* centre the main panel on screen */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
 }
 
 /* Shared panel style */
@@ -25,7 +31,6 @@ body {
     border-radius: 14px;
     width: 90%;
     max-width: 480px;
-    margin: 20px auto;
     text-align: center;
     animation: fadeIn 0.5s ease;
 }
@@ -36,9 +41,10 @@ body {
 }
 
 h1 {
-    font-size: 26px;
+    font-size: 24px;
     font-weight: bold;
     text-transform: uppercase;
+    margin-top: 0;
 }
 
 /* Controls */
@@ -55,10 +61,15 @@ button, select {
 }
 
 button {
-    background: #8AAA AF;
-    color: black;
+    background: #ffffff;
+    color: #000000;
     font-weight: bold;
     text-transform: uppercase;
+}
+
+#dashboardButton {
+    background: #fff4b8;
+    color: #09203f;
 }
 
 button:hover { transform: scale(1.03); opacity: 0.9; }
@@ -66,11 +77,12 @@ button:active { transform: scale(0.95); }
 
 #reader {
     width: 100%;
-    display: none;
     margin-top: 15px;
+    display: none;
+    background: rgba(0,0,0,0.4);
 }
 
-/* Manual title input */
+/* Inputs */
 #manualTitleInput,
 #whoQueryInput {
     padding: 12px;
@@ -141,6 +153,9 @@ button:active { transform: scale(0.95); }
     <button id="startScanButton">SCAN BAR CODE HERE</button>
     <button id="manualTitleButton">ENTER TITLE MANUALLY</button>
     <button id="whoHasButton">WHO HAS THIS BOOK?</button>
+    <button id="dashboardButton" onclick="window.location.href='dashboard.html'">
+        GO TO DASHBOARD
+    </button>
 
     <div id="manualTitleArea" style="display:none;">
         <input id="manualTitleInput" type="text" placeholder="Type book title…">
@@ -235,17 +250,17 @@ const formStudents = {
 
 document.getElementById("formSelect").addEventListener("change", function () {
     const form = this.value;
-    const initials = document.getElementById("initialsSelect");
-    initials.innerHTML = `<option value="">Select Initials…</option>`;
+    const initialsSelect = document.getElementById("initialsSelect");
+    initialsSelect.innerHTML = `<option value="">Select Initials…</option>`;
 
-    if (formStudents[form]) {
-        formStudents[form].forEach(init => {
-            const opt = document.createElement("option");
-            opt.value = init;
-            opt.textContent = `${init} (${form})`;
-            initials.appendChild(opt);
-        });
-    }
+    if (!formStudents[form]) return;
+
+    formStudents[form].forEach(initial => {
+        const opt = document.createElement("option");
+        opt.value = initial;
+        opt.textContent = `${initial} (${form})`;
+        initialsSelect.appendChild(opt);
+    });
 });
 
 /* ----------------------------------------------------------
@@ -283,7 +298,7 @@ async function startScanner() {
         );
     } catch (err) {
         console.error(err);
-        alert("Camera cannot start.");
+        alert("Camera cannot start. Please allow camera permissions.");
     }
 }
 
@@ -366,22 +381,46 @@ function renderResults(list) {
 
         const info = document.createElement("div");
         info.className = "book-info";
-        info.innerHTML = `<h4>${book.title}</h4><p>${book.author}</p>`;
 
-        const btn = document.createElement("button");
-        btn.textContent = "SELECT";
-        btn.onclick = () => showDetailScreen(book);
+        const h4 = document.createElement("h4");
+        h4.textContent = book.title;
+
+        const p = document.createElement("p");
+        p.textContent = "by " + book.author;
+
+        info.appendChild(h4);
+        info.appendChild(p);
 
         card.appendChild(img);
         card.appendChild(info);
-        card.appendChild(btn);
+
+        card.addEventListener("click", () => showDetailScreen(book));
 
         container.appendChild(card);
     });
 }
 
 /* ----------------------------------------------------------
-   DETAIL SCREEN – AFTER SELECTING A BOOK
+   MANUAL TITLE SEARCH FLOW
+----------------------------------------------------------- */
+document.getElementById("manualTitleButton").addEventListener("click", () => {
+    const area = document.getElementById("manualTitleArea");
+    area.style.display = area.style.display === "none" ? "block" : "none";
+    document.getElementById("resultsContainer").innerHTML = "";
+});
+
+document.getElementById("manualSearchButton").addEventListener("click", async () => {
+    const typed = document.getElementById("manualTitleInput").value.trim();
+    if (!typed) {
+        alert("Type a title first.");
+        return;
+    }
+    const list = await searchBooks(typed);
+    renderResults(list);
+});
+
+/* ----------------------------------------------------------
+   SHOW DETAIL SCREEN
 ----------------------------------------------------------- */
 function showDetailScreen(book) {
     selectedBook = book;
@@ -408,7 +447,7 @@ function showDetailScreen(book) {
     }
 }
 
-// Back to results/main from detail
+// Back to main from detail
 document.getElementById("backToResultsButton").addEventListener("click", () => {
     document.getElementById("detail-screen").style.display = "none";
     document.getElementById("scan-screen").style.display = "block";
@@ -435,7 +474,7 @@ async function logToSheet(record) {
 async function fetchSheetData() {
     try {
         const res = await fetch(SHEET_URL);
-        const data = await res.json(); // [[headers...], [row1...], ...]
+        const data = await res.json(); // [[headers], [row1], …]
         return data;
     } catch (err) {
         console.error("Error fetching sheet data", err);
@@ -452,7 +491,7 @@ async function getLastLoanDate(bookKey, title) {
     // Rows assumed oldest → newest
     for (let i = rows.length - 1; i >= 0; i--) {
         const row = rows[i];
-        const [sheetBookID, sheetTitle,,, , loanDate,, status] = row;
+        const [sheetBookID, sheetTitle, , loanDate, status] = row;
         if (
             status === "Loan" &&
             (sheetBookID === bookKey || (sheetTitle && sheetTitle === title))
@@ -484,7 +523,7 @@ document.getElementById("continueButton").addEventListener("click", async () => 
     const key   = selectedBook.id || selectedBook.title;
     const today = new Date().toLocaleDateString();
 
-    let loanDateForSummary = "";
+    let loanDateForSummary   = "";
     let returnDateForSummary = "";
 
     if (action === "loan") {
@@ -535,25 +574,6 @@ document.getElementById("continueButton").addEventListener("click", async () => 
 });
 
 /* ----------------------------------------------------------
-   MANUAL TITLE SEARCH FLOW
------------------------------------------------------------ */
-document.getElementById("manualTitleButton").addEventListener("click", () => {
-    const area = document.getElementById("manualTitleArea");
-    area.style.display = area.style.display === "none" ? "block" : "none";
-    document.getElementById("resultsContainer").innerHTML = "";
-});
-
-document.getElementById("manualSearchButton").addEventListener("click", async () => {
-    const typed = document.getElementById("manualTitleInput").value.trim();
-    if (!typed) {
-        alert("Type a title first.");
-        return;
-    }
-    const list = await searchBooks(typed);
-    renderResults(list);
-});
-
-/* ----------------------------------------------------------
    WHO HAS THIS BOOK? (LIVE FROM GOOGLE SHEETS)
 ----------------------------------------------------------- */
 
@@ -598,7 +618,7 @@ document.getElementById("whoSearchButton").addEventListener("click", async () =>
 
     // Filter by query
     const matches = Object.values(latest).filter(r => {
-        const t = (r.title || "").toLowerCase();
+        const t  = (r.title || "").toLowerCase();
         const id = (r.bookID || "").toLowerCase();
         return t.includes(query) || id.includes(query);
     });
@@ -644,8 +664,13 @@ function resetForm() {
     document.getElementById("scan-screen").style.display    = "block";
 
     document.getElementById("manualTitleInput").value = "";
-    document.getElementById("resultsContainer").innerHTML = "";
     document.getElementById("manualTitleArea").style.display = "none";
+    document.getElementById("resultsContainer").innerHTML = "";
+    document.getElementById("reader").style.display = "none";
+
+    if (qrScanner) {
+        try { qrScanner.stop(); } catch(e) {}
+    }
 }
 </script>
 
