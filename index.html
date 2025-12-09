@@ -119,7 +119,7 @@ input {
     <div id="reader"></div>
 
     <p class="small" style="margin-top:8px;">
-        Only books in our library catalogue (Books sheet) will appear.
+        Only books in our library catalogue will appear.
     </p>
 </div>
 
@@ -208,15 +208,22 @@ input {
 
     <img id="summaryCover" style="display:none;">
 
+    <button id="arButton" style="margin-top:10px; display:none;">
+        LOG YOUR WORD COUNT ON ACCELERATED READER
+    </button>
+
     <button id="summaryBackBtn" style="margin-top:10px;">Scan Another Book</button>
 </div>
 
 <script>
 /* ===========================================================
-   CONFIG
+   CONFIG + GLOBAL STATE
 =========================================================== */
 
-const SHEET_URL = "https://script.google.com/macros/s/AKfycbxMwCeee1UBbqIyKdDMkWJ10DprAsCfmxs74onf42gq2_mThi9hHDR7jMhnm_gUHdWn/exec";
+const SHEET_URL = "https://script.google.com/macros/s/AKfycbx33DPCRwrYsNdsB6xfUWn63d9MF8RKDA-Cw8qIkXfKFS_ndDYX9ULxRowE3aRumWyT/exec";
+
+const AR_URL =
+  "https://global-zone08.renaissance-go.com/identityservice/sso/tenant?returnUrl=%2Fidentityservice%2Fsso%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3Dstudentportallinux%26redirect_uri%3Dhttps%253A%252F%252Fglobal-zone08.renaissance-go.com%252Fstudentportal%252Fsignin-oidc%26response_type%3Did_token%26scope%3Dopenid%2520ren.profile%26response_mode%3Dform_post%26nonce%3D639008158509953001.Y2Q0NWIxYmQtNGI1MC00ZWRmLWIwN2YtZDAzNzJmYWZmMTcxOTY2NGExYmQtMDAwMy00NGFjLWIzZTQtN2MyYzI0M2Y1N2Yy%26prompt%3Dlogin%26state%3DCfDJ8DPUwk2T_CRBtvGzYEDp-ve75Wt-t6h_dPHlpD6RnyS_miIEHX4NCYeQWQW-BFY1nDasGpzBbaZMwG0tmr_2TNqvcfRpAwE7ygBjeP9fB23tHENoHcn-vLmEBHD0KWtQnFmpvUmAB3jsNNylvjBRcqdtISMOn4lp5mcQP8A2-S-ShyEmdT57JktdEHm1TfI0w5qdh5dqMqEWzfKXfVA08AZsSSBPCwpYL-8JC0ED0Q0nPjZsaeJxasMV54P2Py_tMdPPr9wJ_mB9jBfaHDit0Wg4ZlIJv-_pNWBVztTAGXMPjfApo4XGX8QW4ZeJt8Q9zHTJriFVJt9wjmrPpF3N2OqO6td351RCZEd0lMPzLlq94Ma_Ppi3C5ZCUYqA-KAuOspYRLwIBMOVYbgto2VyvloWMUNofRgpBXafKGuAe3LepQq98jK31EMiFQ4JJIrR7Q%26x-client-SKU%3DID_NETSTANDARD2_0%26x-client-ver%3D6.8.0.0%26suppressed_prompt%3Dlogin";
 
 const formStudents = {
   "Form 8": ["JC","ADB","CG","JG","RH","KH","AL","LLV","WN","IO","MP","HP","Ase","Ast","ST","AT","CW"],
@@ -227,11 +234,11 @@ const formStudents = {
   "Form 3": ["PA","PC","WH","BH"]
 };
 
-let books = [];          // from Books sheet
-let transactions = [];   // from Loans list sheet
-let googleCache = {};    // title -> {thumbnail, pageCount, wordCount}
-let selectedBook = null; // { title, author, thumbnail, pageCount }
-let pendingAction = null; // "Loan" or "Return"
+let books = [];        // from "Books"
+let loans = [];        // from "Loans list"
+let googleCache = {};  // title -> {thumbnail, pageCount, wordCount}
+let selectedBook = null;
+let pendingAction = null;   // "Loan" or "Return"
 let videoStream = null;
 
 /* ===========================================================
@@ -243,60 +250,53 @@ async function loadLibraryData() {
     const res = await fetch(SHEET_URL);
     const json = await res.json();
     books = json.books || [];
-    transactions = json.transactions || [];
+    loans = json.loans || [];
   } catch (err) {
     console.error("Error loading data:", err);
-    alert("Could not load library data. Check network or Apps Script.");
   }
 }
 loadLibraryData();
 
 /* ===========================================================
-   HELPERS: COUNTS + OPEN LOANS
+   STATS + OPEN LOANS HELPERS
 =========================================================== */
 
 function getStatsForTitle(title) {
-  const tLower = (title || "").toLowerCase();
+  const t = (title || "").toLowerCase();
 
-  const copies = books.filter(b =>
-    (b.Title || "").toLowerCase() === tLower
-  );
+  const copies = books.filter(b => (b.Title || "").toLowerCase() === t);
   const totalCopies = copies.length;
 
-  let totalLoan = 0;
-  let totalReturn = 0;
-
-  transactions.forEach(tr => {
-    if ((tr.Title || "").toLowerCase() === tLower) {
-      const action = (tr.Action || "").toLowerCase();
-      if (action === "loan")   totalLoan++;
-      if (action === "return") totalReturn++;
-    }
+  let netLoans = 0;
+  loans.forEach(r => {
+    if ((r.Title || "").toLowerCase() !== t) return;
+    const status = (r.Status || "").toLowerCase();
+    if (status === "loan")   netLoans++;
+    if (status === "return") netLoans--;
   });
 
-  const onLoan = Math.max(totalLoan - totalReturn, 0);
+  const onLoan = Math.max(netLoans, 0);
   const available = Math.max(totalCopies - onLoan, 0);
 
   return { totalCopies, onLoan, available };
 }
 
-// returns array [{form, initials, copies}]
 function getOpenLoansForTitle(title) {
-  const tLower = (title || "").toLowerCase();
-  const map = {}; // key: form|initials -> net loan count
+  const t = (title || "").toLowerCase();
+  const map = {}; // key = form|initials -> netLoans
 
-  transactions.forEach(tr => {
-    if ((tr.Title || "").toLowerCase() !== tLower) return;
-    const form = (tr.Form || "").trim();
-    const initials = (tr.Initials || "").trim();
+  loans.forEach(r => {
+    if ((r.Title || "").toLowerCase() !== t) return;
+    const form = (r.Form || "").trim();
+    const initials = (r.Initials || "").trim();
     if (!form || !initials) return;
 
     const key = form + "|" + initials;
     if (!map[key]) map[key] = 0;
 
-    const action = (tr.Action || "").toLowerCase();
-    if (action === "loan")   map[key] += 1;
-    if (action === "return") map[key] -= 1;
+    const status = (r.Status || "").toLowerCase();
+    if (status === "loan")   map[key]++;
+    if (status === "return") map[key]--;
   });
 
   const list = [];
@@ -310,7 +310,7 @@ function getOpenLoansForTitle(title) {
 }
 
 /* ===========================================================
-   CAMERA CLEAN-UP
+   CAMERA HELPERS
 =========================================================== */
 
 function stopCamera() {
@@ -332,10 +332,10 @@ async function startCoverCapture() {
   const reader = document.getElementById("reader");
   reader.style.display = "block";
   reader.innerHTML = `
-    <div style="position:relative; width:100%; border-radius:10px; overflow:hidden;">
+    <div style="position:relative;width:100%;border-radius:10px;overflow:hidden;">
       <video id="coverVideo" autoplay playsinline style="width:100%;"></video>
     </div>
-    <div style="display:flex; gap:10px; margin-top:10px;">
+    <div style="display:flex;gap:10px;margin-top:10px;">
       <button id="captureBtn" style="flex:1;">CAPTURE</button>
       <button id="cancelCaptureBtn" style="flex:1;">CANCEL</button>
     </div>
@@ -354,9 +354,10 @@ async function startCoverCapture() {
       stream = await navigator.mediaDevices.getUserMedia(c);
       break;
     } catch (err) {
-      console.warn("Camera constraint failed, trying next:", err);
+      console.warn("Constraint failed, trying next:", err);
     }
   }
+
   if (!stream) {
     alert("Unable to access camera.");
     reader.style.display = "none";
@@ -378,7 +379,6 @@ async function startCoverCapture() {
     const scale = 0.6;
     canvas.width  = vw * scale;
     canvas.height = vh * scale;
-
     const ctx = canvas.getContext("2d");
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataURL = canvas.toDataURL("image/jpeg", 0.9);
@@ -416,14 +416,12 @@ async function processCoverImage(dataURL) {
       return;
     }
 
-    // pick line closest to ~25 chars
-    lines.sort((a,b) => Math.abs(a.length-25) - Math.abs(b.length-25));
+    lines.sort((a,b) => Math.abs(a.length - 25) - Math.abs(b.length - 25));
     const guess = lines[0];
 
-    reader.innerHTML = `<p>We think the title includes: <b>${guess}</b></p>`;
-    // Use guess in manual search field
-    const input = document.getElementById("manualTitleInput");
+    reader.style.display = "none";
     document.getElementById("manualTitleArea").style.display = "block";
+    const input = document.getElementById("manualTitleInput");
     input.value = guess;
     input.dispatchEvent(new Event("input"));
   } catch (err) {
@@ -436,14 +434,15 @@ async function processCoverImage(dataURL) {
 }
 
 /* ===========================================================
-   GOOGLE BOOKS HELPER (cover + word count)
+   GOOGLE BOOKS LOOKUP (cover + word count)
 =========================================================== */
 
 async function lookupGoogleBook(title) {
   if (googleCache[title]) return googleCache[title];
 
-  const url = "https://www.googleapis.com/books/v1/volumes?q=" +
-              encodeURIComponent(title) + "&maxResults=1";
+  const url =
+    "https://www.googleapis.com/books/v1/volumes?q=" +
+    encodeURIComponent(title) + "&maxResults=1";
 
   try {
     const res = await fetch(url);
@@ -466,7 +465,7 @@ async function lookupGoogleBook(title) {
 }
 
 /* ===========================================================
-   OPEN BOOK DETAIL SCREEN
+   OPEN DETAIL SCREEN FOR A TITLE
 =========================================================== */
 
 async function openBookByTitle(title, author) {
@@ -478,7 +477,6 @@ async function openBookByTitle(title, author) {
   selectedBook.thumbnail = g.thumbnail;
   selectedBook.pageCount = g.pageCount;
 
-  // Switch screens
   document.getElementById("scan-screen").style.display    = "none";
   document.getElementById("who-screen").style.display     = "none";
   document.getElementById("summary-screen").style.display = "none";
@@ -505,7 +503,6 @@ async function openBookByTitle(title, author) {
 
   const stats = getStatsForTitle(title);
   const infoDiv = document.getElementById("copiesInfo");
-
   if (!stats.totalCopies) {
     infoDiv.innerHTML = "<b>This title is not in our catalogue.</b>";
   } else {
@@ -521,7 +518,7 @@ async function openBookByTitle(title, author) {
 }
 
 /* ===========================================================
-   MANUAL SEARCH (AUTOSUGGEST)
+   MANUAL SEARCH AUTOSUGGEST
 =========================================================== */
 
 const manualInput = document.getElementById("manualTitleInput");
@@ -542,7 +539,6 @@ manualInput.addEventListener("input", async () => {
   const matches = books.filter(b =>
     (b.Title || "").toLowerCase().includes(q)
   );
-
   if (!matches.length) {
     sugDiv.innerHTML = "<p>No matching books in our library.</p>";
     return;
@@ -593,7 +589,7 @@ manualInput.addEventListener("input", async () => {
 });
 
 /* ===========================================================
-   FORM / INITIALS
+   FORM / INITIALS / LOAN / RETURN
 =========================================================== */
 
 document.getElementById("formSelect").addEventListener("change", () => {
@@ -642,10 +638,6 @@ document.getElementById("formBackBtn").addEventListener("click", () => {
   document.getElementById("detail-screen").style.display = "block";
 });
 
-/* ===========================================================
-   LOG LOAN / RETURN TO GOOGLE SHEET
-=========================================================== */
-
 document.getElementById("formContinueBtn").addEventListener("click", async () => {
   if (!selectedBook || !pendingAction) {
     alert("No book or action selected.");
@@ -681,12 +673,13 @@ document.getElementById("formContinueBtn").addEventListener("click", async () =>
   const record = {
     Title: selectedBook.title,
     Author: selectedBook.author,
-    Action: pendingAction,
     Form: form,
     Initials: ini,
-    Shelf: shelf,
     LoanDate: pendingAction === "Loan"   ? today : "",
-    ReturnDate: pendingAction === "Return" ? today : ""
+    ReturnDate: pendingAction === "Return" ? today : "",
+    OriginalLocation: pendingAction === "Loan"   ? shelf : "",
+    NewLocation: pendingAction === "Return" ? shelf : "",
+    Status: pendingAction
   };
 
   try {
@@ -710,20 +703,17 @@ function showSummary(record) {
   document.getElementById("detail-screen").style.display = "none";
   document.getElementById("summary-screen").style.display = "block";
 
-  document.getElementById("summaryForm").innerHTML =
-    `<b>Form:</b> ${record.Form}`;
-  document.getElementById("summaryInitials").innerHTML =
-    `<b>Name:</b> ${record.Initials}`;
-  document.getElementById("summaryShelf").innerHTML =
-    `<b>Shelf:</b> ${record.Shelf}`;
-  document.getElementById("summaryBook").innerHTML =
-    `<b>Book:</b> ${record.Title}`;
-  document.getElementById("summaryAuthor").innerHTML =
-    `<b>Author:</b> ${record.Author}`;
-  document.getElementById("summaryAction").innerHTML =
-    `<b>Status:</b> ${record.Action === "Loan" ? "Signed Out" : "Returned"}`;
-  document.getElementById("summaryDate").innerHTML =
-    `<b>Today:</b> ${record.Action === "Loan" ? record.LoanDate : record.ReturnDate}`;
+  document.getElementById("summaryForm").innerHTML      = `<b>Form:</b> ${record.Form}`;
+  document.getElementById("summaryInitials").innerHTML  = `<b>Name:</b> ${record.Initials}`;
+  document.getElementById("summaryShelf").innerHTML     =
+    `<b>${record.Status === "Loan" ? "Taken from" : "Returned to"} shelf:</b> ` +
+    (record.Status === "Loan" ? record.OriginalLocation : record.NewLocation);
+  document.getElementById("summaryBook").innerHTML      = `<b>Book:</b> ${record.Title}`;
+  document.getElementById("summaryAuthor").innerHTML    = `<b>Author:</b> ${record.Author}`;
+  document.getElementById("summaryAction").innerHTML    =
+    `<b>Status:</b> ${record.Status === "Loan" ? "Signed Out" : "Returned"}`;
+  document.getElementById("summaryDate").innerHTML      =
+    `<b>Today:</b> ${record.Status === "Loan" ? record.LoanDate : record.ReturnDate}`;
 
   const img = document.getElementById("summaryCover");
   if (selectedBook && selectedBook.thumbnail) {
@@ -732,17 +722,22 @@ function showSummary(record) {
   } else {
     img.style.display = "none";
   }
+
+  // AR button only on return
+  document.getElementById("arButton").style.display =
+    record.Status === "Return" ? "block" : "none";
 }
 
-document.getElementById("summaryBackBtn").addEventListener("click", () => {
-  selectedBook = null;
-  pendingAction = null;
-  document.getElementById("summary-screen").style.display = "none";
-  document.getElementById("scan-screen").style.display    = "block";
+/* ===========================================================
+   ACCELERATED READER BUTTON
+=========================================================== */
+
+document.getElementById("arButton").addEventListener("click", () => {
+  window.open(AR_URL, "_blank");
 });
 
 /* ===========================================================
-   WHO HAS THIS BOOK? (SEPARATE SCREEN)
+   WHO HAS THIS BOOK? SCREEN
 =========================================================== */
 
 document.getElementById("whoHasButton").addEventListener("click", () => {
@@ -753,7 +748,6 @@ document.getElementById("whoHasButton").addEventListener("click", () => {
   document.getElementById("whoResults").innerHTML = "";
 });
 
-// From detail screen (for the current selectedBook)
 document.getElementById("detailWhoHasButton").addEventListener("click", async () => {
   if (!selectedBook) return;
   stopCamera();
@@ -799,7 +793,7 @@ async function runWhoSearch(queryTitlePart) {
     const borrowers = getOpenLoansForTitle(title);
     if (!borrowers.length) return;
 
-    let html = `<div style="margin-bottom:12px; background:rgba(255,255,255,0.12); padding:10px; border-radius:10px;">`;
+    let html = `<div style="margin-bottom:12px;background:rgba(255,255,255,0.12);padding:10px;border-radius:10px;">`;
     html += `<p><b>${title}</b></p>`;
     borrowers.forEach(bor => {
       html += `<p style="margin:2px 0;">${bor.form} — ${bor.initials} (has ${bor.copies} copy/copies)</p>`;
@@ -822,6 +816,13 @@ document.getElementById("coverButton").onclick = startCoverCapture;
 document.getElementById("backToStartButton").addEventListener("click", () => {
   document.getElementById("detail-screen").style.display = "none";
   document.getElementById("scan-screen").style.display   = "block";
+});
+
+document.getElementById("summaryBackBtn").addEventListener("click", () => {
+  selectedBook = null;
+  pendingAction = null;
+  document.getElementById("summary-screen").style.display = "none";
+  document.getElementById("scan-screen").style.display    = "block";
 });
 </script>
 
