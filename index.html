@@ -164,23 +164,21 @@ input {
         Scan Another Book
     </button>
 </div>
-<!-- OCR for cover text -->
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-
-<!-- Barcode / QR scanning -->
-<script src="https://unpkg.com/html5-qrcode"></script>
-
 <script>
 /* ================================================================
-   CONFIG
+   PART 4.1 — GLOBAL STATE, SHEET COMMUNICATION, GOOGLE BOOKS,
+               CAMERA STOP, COVER CAPTURE (WITH CROPPING)
 ================================================================ */
 
 const SHEET_URL =
   "https://script.google.com/macros/s/AKfycbzzx-KWXfCV9vWJG5RIq8nLBvNU3jWB3IYZ9jys5uz3d8vHIKYDB-PsZHbF5AVcBLGWmQ/exec";
 
 const AR_URL =
-  "https://global-zone08.renaissance-go.com/identityservice/sso/tenant?returnUrl=%2Fidentityservice%2Fsso%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3Dstudentportallinux%26redirect_uri%3Dhttps%253A%252F%252Fglobal-zone08.renaissance-go.com%252Fstudentportal%252Fsignin-oidc%26response_type%3Did_token%26scope%3Dopenid%2520ren.profile%26response_mode%3Dform_post%26nonce%3D639008158509953001.Y2Q0NWIxYmQtNGI1MC00ZWRmLWIwN2YtZDAzNzJmYWZmMTcxOTY2NGExYmQtMDAwMy00NGFjLWIzZTQtN2MyYzI0M2Y1N2Yy%26prompt%3Dlogin%26state%3DCfDJ8DPUwk2T_CRBtvGzYEDp-ve75Wt-t6h_dPHlpD6RnyS_miIEHX4NCYeQWQW-BFY1nDasGpzBbaZMwG0tmr_2TNqvcfRpAwE7ygBjeP9fB23tHENoHcn-vLmEBHD0KWtQnFmpvUmAB3jsNNylvjBRcqdtISMOn4lp5mcQP8A2-S-ShyEmdT57JktdEHm1TfI0w5qdh5dqMqEWzfKXfVA08AZsSSBPCwpYL-8JC0ED0Q0nPjZsaeJxasMV54P2Py_tMdPPr9wJ_mB9jBfaHDit0Wg4ZlIJv-_pNWBVztTAGXMPjfApo4XGX8QW4ZeJt8Q9zHTJriFVJt9wjmrPpF3N2OqO6td351RCZEd0lMPzLlq94Ma_Ppi3C5ZCUYqA-KAuOspYRLwIBMOVYbgto2VyvloWMUNofRgpBXafKGuAe3LepQq98jK31EMiFQ4JJIrR7Q%26x-client-SKU%3DID_NETSTANDARD2_0%26x-client-ver%3D6.8.0.0%26suppressed_prompt%3Dlogin";
+  "https://global-zone08.renaissance-go.com/identityservice/sso/tenant?returnUrl=%2Fidentityservice%2Fsso%2Fconnect%2Fauthorize%2Fcallback%3Fclient_id%3Dstudentportallinux%26redirect_uri%3Dhttps%253A%252F%252Fglobal-zone08.renaissance-go.com%252Fstudentportal%252Fsignin-oidc%26response_type%3Did_token%26scope%3Dopenid%2520ren.profile%26response_mode%3Dform_post%26nonce%3D639008158509953001.Y2Q0NWIxYmQtNGI1MC00ZWRmLWIwN2YtZDAzNzJmYWZmMTcxOTY2NGExYmQtMDAwMy00NGFjLWIzZTQtN2MyYzI0M2Y1N2Yy%26prompt%3Dlogin%26state%3DCfDJ8DPUwk2T_CRBtvGzYEDp-ve75Wt-t6h_dPHlpD6RnyS_miIEHX4NCYeQWQW-BFY1nDasGpzBbaZMwG0tmr_2TNqvcfRpAwE7ygBjeP9fB23tHENoHcn-vLmEBHD0KWtQnFmpvUmAB3jsNNylvjBRcqdtISMOn4lp5mcQP8A2-S-ShyEmdT57JktdEHm1TfI0w5qdh5dqMqEWzfKXfVA08AZsSSBPCwpYL-8JC0ED0Q0nPjZsaeJxasMV54P2Py_tMdPPr9wJ_mB9jBfaHDit0Wg4ZlIJv-_pNWBVztTAGXMPjfApo4XGX8QW4ZeJt8Q9zHTJriFVJt9wjmrPpF3N2OqO6td351RCZEd0lMPzLlq94Ma_Ppi3C5ZCUYqA-KAuOspYRLwIBMOVYbgto2VyvloWMUNofRgpBXafKGuAe3LepQq98 EB31";
 
+/* -----------------------------
+   FORM STUDENT LISTS
+------------------------------ */
 const formStudents = {
   "Form 8": ["JC","ADB","CG","JG","RH","KH","AL","LLV","WN","IO","MP","HP","Ase","Ast","ST","AT","CW"],
   "Form 7": ["DAB","EC","TE","DE-S","PH-S","CH","NJ","LLFP","TM","LP","SS","AS","TS"],
@@ -190,19 +188,20 @@ const formStudents = {
   "Form 3": ["PA","PC","WH","BH"]
 };
 
-/* ================================================================
-   GLOBAL STATE
-================================================================ */
+/* -----------------------------
+   GLOBAL VARIABLES
+------------------------------ */
 
-let libraryBooks  = []; // all rows from sheet
-let googleCache   = {}; // title -> {thumbnail, wordCount}
+let libraryBooks  = []; // filled from sheet
+let googleCache   = {}; // title -> { thumbnail, wordCount }
 let selectedBook  = null;
-let pendingAction = null; // "loan" or "return"
+let pendingAction = null;
+
 let qrScanner     = null;
 let videoStream   = null;
 
 /* ================================================================
-   SHEET HELPERS
+   SHEET HELPER FUNCTIONS
 ================================================================ */
 
 async function fetchSheetData() {
@@ -210,7 +209,7 @@ async function fetchSheetData() {
     const res = await fetch(SHEET_URL);
     return await res.json();
   } catch (err) {
-    console.error("Error fetching sheet data", err);
+    console.error("Error fetching sheet:", err);
     return [];
   }
 }
@@ -219,17 +218,16 @@ async function loadLibraryBooks() {
   const data = await fetchSheetData();
   libraryBooks = data.map(r => {
     const status = (r.Status || "").toLowerCase();
-    const onLoan = status === "loan" && !r["Return Date"];
     return {
-      title:      (r.Title    || "").trim(),
-      author:     (r.Author   || "").trim(),
+      title:      (r.Title || "").trim(),
+      author:     (r.Author || "").trim(),
       location:   (r.Location || "").trim(),
-      form:       (r.Form     || "").trim(),
+      form:       (r.Form || "").trim(),
       initials:   (r.Initials || "").trim(),
       loanDate:   r["Loan Date"]   || "",
       returnDate: r["Return Date"] || "",
-      status:     status,
-      onLoan:     onLoan
+      status,
+      onLoan:     status === "loan" && !r["Return Date"]
     };
   });
 }
@@ -239,12 +237,12 @@ async function postRecord(record) {
   try {
     await fetch(SHEET_URL, {
       method: "POST",
-      headers: { "Content-Type":"application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(record)
     });
-    loadLibraryBooks();
+    await loadLibraryBooks();
   } catch (err) {
-    console.error("Error posting record", err);
+    console.error("POST error:", err);
   }
 }
 
@@ -261,7 +259,6 @@ async function lookupBook(query) {
   try {
     const res = await fetch(url);
     const data = await res.json();
-
     if (!data.items) {
       return { title: query, author: "Unknown", thumbnail: "", pageCount: null };
     }
@@ -274,13 +271,13 @@ async function lookupBook(query) {
       pageCount: info.pageCount || null
     };
   } catch (err) {
-    console.error("Google Books error", err);
+    console.error("Google Books error:", err);
     return { title: query, author: "Unknown", thumbnail: "", pageCount: null };
   }
 }
 
 /* ================================================================
-   CAMERA HELPERS (stop everything)
+   CAMERA STOP FUNCTION
 ================================================================ */
 
 function stopAllScanning() {
@@ -292,6 +289,7 @@ function stopAllScanning() {
     try { qrScanner.stop(); } catch {}
     qrScanner = null;
   }
+
   if (videoStream) {
     videoStream.getTracks().forEach(t => t.stop());
     videoStream = null;
@@ -299,7 +297,7 @@ function stopAllScanning() {
 }
 
 /* ================================================================
-   COVER CAPTURE MODE (rear camera, full screen, retake)
+   START COVER CAPTURE (REAR CAMERA, FRAME, CROPPING)
 ================================================================ */
 
 async function startCoverCapture() {
@@ -310,24 +308,28 @@ async function startCoverCapture() {
   reader.innerHTML = `
     <div style="position:relative; width:100%; border-radius:10px; overflow:hidden;">
       <video id="coverVideo" autoplay playsinline style="width:100%;"></video>
-      <!-- Simple frame overlay -->
-      <div style="
-        position:absolute; top:10%; left:10%; width:80%; height:60%;
-        border:3px solid rgba(255,255,255,0.7); border-radius:12px;
-        box-shadow:0 0 0 9999px rgba(0,0,0,0.35);
+
+      <!-- CROPPING FRAME OVERLAY -->
+      <div id="cropFrame" style="
+        position:absolute;
+        top:12%; left:12%;
+        width:76%; height:60%;
+        border:3px solid rgba(255,255,255,0.8);
+        border-radius:12px;
+        box-shadow:0 0 0 9999px rgba(0,0,0,0.4);
         pointer-events:none;
       "></div>
     </div>
-    <div style="margin-top:10px; display:flex; gap:10px;">
+
+    <div style="margin-top:12px; display:flex; gap:10px;">
       <button id="captureBtn" style="flex:1;">CAPTURE</button>
       <button id="cancelCaptureBtn" style="flex:1;">CANCEL</button>
     </div>
-    <p style="margin-top:8px; font-size:13px;">
-      Line the book cover up inside the frame, then press CAPTURE.
-    </p>
+
+    <p style="margin-top:8px; font-size:13px;">Fit the book cover inside the frame, then press CAPTURE.</p>
   `;
 
-  // Camera constraints with fallback:
+  /* Try rear camera first */
   const constraintsList = [
     { video: { facingMode: { exact: "environment" }, width:{ideal:1920}, height:{ideal:1080} } },
     { video: { facingMode: "environment" } },
@@ -340,7 +342,7 @@ async function startCoverCapture() {
       stream = await navigator.mediaDevices.getUserMedia(c);
       break;
     } catch (err) {
-      console.warn("Constraint failed, trying next:", err);
+      console.warn("Camera constraint failed:", err);
     }
   }
 
@@ -354,69 +356,114 @@ async function startCoverCapture() {
   const video = document.getElementById("coverVideo");
   video.srcObject = stream;
 
-  document.getElementById("cancelCaptureBtn").onclick = () => {
-    stopAllScanning();
-  };
+  /* Cancel */
+  document.getElementById("cancelCaptureBtn").onclick = () => stopAllScanning();
 
+  /* Capture */
   document.getElementById("captureBtn").onclick = async () => {
     const canvas = document.createElement("canvas");
-    canvas.width  = video.videoWidth;
-    canvas.height = video.videoHeight;
-    const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0);
+    const crop = document.getElementById("cropFrame");
 
-    const dataURL = canvas.toDataURL("image/jpeg");
+    /* Calculate crop region relative to video */
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+
+    const frameRect = crop.getBoundingClientRect();
+    const videoRect = video.getBoundingClientRect();
+
+    const xRatio = vw / videoRect.width;
+    const yRatio = vh / videoRect.height;
+
+    const sx = (frameRect.left - videoRect.left) * xRatio;
+    const sy = (frameRect.top - videoRect.top) * yRatio;
+    const sw = frameRect.width * xRatio;
+    const sh = frameRect.height * yRatio;
+
+    /* Downscale for performance */
+    const scale = 0.6;
+    canvas.width  = sw * scale;
+    canvas.height = sh * scale;
+
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+
+    const dataURL = canvas.toDataURL("image/jpeg", 0.9);
 
     stopAllScanning();
     await processCoverImage(dataURL);
   };
-}
+};
+</script>
+<script>
+/* ================================================================
+   PART 4.2 — OCR, PROCESS COVER IMAGE, BARCODE SCANNER,
+               COPY AVAILABILITY + MATCHING
+================================================================ */
 
 /* ================================================================
-   OCR + TITLE GUESSING FROM COVER IMAGE
+   PROCESS COVER IMAGE (OCR → GOOGLE BOOKS)
 ================================================================ */
 
 async function processCoverImage(dataURL) {
   const reader = document.getElementById("reader");
   reader.style.display = "block";
-  reader.innerHTML = "<p>Reading text from cover…</p>";
+  reader.innerHTML = `
+      <p style="font-size:16px;">Reading text on cover…</p>
+      <p id="ocrStatus" style="font-size:13px; opacity:0.8;">Initialising OCR…</p>
+  `;
+
+  const statusEl = document.getElementById("ocrStatus");
 
   try {
+    /* Run OCR with progress logging */
     const result = await Tesseract.recognize(dataURL, "eng", {
-      logger: m => console.log(m)
+      logger: m => {
+        console.log(m);
+        statusEl.textContent = m.status || "Processing…";
+      }
     });
+
     let text = result.data.text || "";
 
-    text = text.replace(/\r/g, "").split("\n")
-      .map(l => l.trim())
-      .filter(l => l.length > 3 && /[A-Za-z]/.test(l));
+    /* Clean OCR text */
+    const lines = text
+      .split("\n")
+      .map(x => x.trim())
+      .filter(x => x.length > 3 && /[A-Za-z]/.test(x));
 
-    if (!text.length) {
-      reader.innerHTML = "<p>Couldn’t detect any clear text on the cover.</p>";
+    if (!lines.length) {
+      reader.innerHTML = `
+        <p>No readable text found inside the frame.</p>
+        <button onclick="startCoverCapture()">TRY AGAIN</button>
+      `;
       return;
     }
 
-    // Pick a "likely title" line:
-    // - prefer medium-length line (not too short, not screaming-long)
-    text.sort((a, b) => Math.abs(a.length - 25) - Math.abs(b.length - 25));
-    const bestGuess = text[0];
+    /* Choose best candidate line (approx title length ~ 20–35 chars) */
+    lines.sort((a, b) => Math.abs(a.length - 25) - Math.abs(b.length - 25));
+    const guess = lines[0];
 
-    reader.innerHTML = `<p>Searching for: <b>${bestGuess}</b></p>`;
+    reader.innerHTML = `<p>Searching for: <b>${guess}</b></p>`;
 
-    const gb = await lookupBook(bestGuess);
-    selectedBook = gb;
+    /* Lookup Google Books */
+    const book = await lookupBook(guess);
 
-    showDetailScreen(gb);
+    selectedBook = book;
+
     reader.style.display = "none";
+    showDetailScreen(book);
 
   } catch (err) {
-    console.error("OCR error", err);
-    reader.innerHTML = "<p>Something went wrong reading that image.</p>";
+    console.error("OCR FAILED:", err);
+    reader.innerHTML = `
+      <p>OCR failed. Please try again.</p>
+      <button onclick="startCoverCapture()">TRY AGAIN</button>
+    `;
   }
 }
 
 /* ================================================================
-   BARCODE SCANNER (rear cam preferred)
+   BARCODE SCANNER (rear camera, full frame)
 ================================================================ */
 
 async function startBarcodeScanner() {
@@ -429,11 +476,12 @@ async function startBarcodeScanner() {
   try {
     const cams = await Html5Qrcode.getCameras();
     if (!cams.length) {
-      alert("No camera found.");
+      alert("No cameras available.");
       reader.style.display = "none";
       return;
     }
 
+    /* Prefer rear/back camera */
     const cam =
       cams.find(c => c.label.toLowerCase().includes("back")) ||
       cams.find(c => c.label.toLowerCase().includes("rear")) ||
@@ -443,114 +491,130 @@ async function startBarcodeScanner() {
 
     await qrScanner.start(
       cam.id,
-      { fps: 10, qrbox: null },
+      { fps: 10, qrbox: null }, // full-frame scan
       async codeText => {
-        const gb = await lookupBook(codeText);
-        selectedBook = gb;
-        showDetailScreen(gb);
+        const gbook = await lookupBook(codeText);
+        selectedBook = gbook;
+
         stopAllScanning();
+        showDetailScreen(gbook);
       }
     );
 
   } catch (err) {
-    console.error("Scanner error", err);
+    console.error("Scanner error:", err);
     alert("Unable to start barcode scanner.");
     reader.style.display = "none";
   }
 }
 
 /* ================================================================
-   COPIES INFO (by location, available/on loan)
+   COPIES INFO (SHOW ON DETAIL SCREEN)
 ================================================================ */
 
 async function updateCopiesInfo(book) {
-  const infoDiv = document.getElementById("copiesInfo");
-  infoDiv.innerHTML = "Loading copy information…";
+  const div = document.getElementById("copiesInfo");
+  div.innerHTML = "Loading copies…";
 
   const data = await fetchSheetData();
-  const t = (book.title || "").toLowerCase();
+  const titleLower = (book.title || "").toLowerCase();
 
-  const matches = data.filter(r =>
-    (r.Title || "").toLowerCase() === t
+  const matches = data.filter(
+    r => (r.Title || "").toLowerCase() === titleLower
   );
 
   if (!matches.length) {
-    infoDiv.innerHTML = "<b>This title is not yet in the library database.</b>";
+    div.innerHTML = "<b>This title is not yet in the library database.</b>";
     return;
   }
 
-  const perLoc = {};
-  let available = 0;
-  let onLoan    = 0;
+  /* Count availability by location */
+  const availableByLoc = {};
+  let totalAvailable = 0;
+  let totalOnLoan = 0;
 
   matches.forEach(r => {
     const status = (r.Status || "").toLowerCase();
-    const isOnLoan = status === "loan" && !r["Return Date"];
-    const loc = r.Location || "Unknown location";
+    const onLoan = status === "loan" && !r["Return Date"];
+    const loc = r.Location || "Unknown";
 
-    if (isOnLoan) {
-      onLoan++;
+    if (onLoan) {
+      totalOnLoan++;
     } else {
-      perLoc[loc] = (perLoc[loc] || 0) + 1;
-      available++;
+      availableByLoc[loc] = (availableByLoc[loc] || 0) + 1;
+      totalAvailable++;
     }
   });
 
   let html = "<b>Copies by location:</b><br>";
-  Object.keys(perLoc).forEach(loc => {
-    html += `• ${loc}: ${perLoc[loc]} available<br>`;
-  });
-  html += `<br><b>Total available copies:</b> ${available}<br>`;
-  if (onLoan > 0) html += `<b>On loan:</b> ${onLoan}<br>`;
+  for (let loc in availableByLoc) {
+    html += `• ${loc}: ${availableByLoc[loc]} available<br>`;
+  }
 
-  infoDiv.innerHTML = html;
+  html += `<br><b>Total available:</b> ${totalAvailable}<br>`;
+  if (totalOnLoan > 0) {
+    html += `<b>On loan:</b> ${totalOnLoan}<br>`;
+  }
+
+  div.innerHTML = html;
 }
 
 /* ================================================================
-   FIND COPY FOR LOAN / RETURN
+   FIND COPY FOR LOAN
 ================================================================ */
 
 async function findCopyForLoan(title, location) {
   const data = await fetchSheetData();
+
   const t = title.toLowerCase();
   const loc = location.toLowerCase();
 
-  const matches = data.filter(r =>
-    (r.Title || "").toLowerCase() === t &&
-    (r.Location || "").toLowerCase() === loc
+  /* All copies matching title + location */
+  const copies = data.filter(
+    r => (r.Title || "").toLowerCase() === t &&
+         (r.Location || "").toLowerCase() === loc
   );
 
-  if (!matches.length) return null;
+  if (!copies.length) return null;
 
-  const available = matches.find(r => {
-    const status = (r.Status || "").toLowerCase();
-    const onLoan = status === "loan" && !r["Return Date"];
-    return !onLoan;
-  });
+  /* Find an available (not on loan) copy */
+  const available = copies.find(
+    r => (r.Status || "").toLowerCase() !== "loan" || r["Return Date"]
+  );
 
   return available || null;
 }
 
+/* ================================================================
+   FIND COPY FOR RETURN
+================================================================ */
+
 async function findCopyForReturn(title, form, initials) {
   const data = await fetchSheetData();
-  const t   = title.toLowerCase();
-  const f   = form.toLowerCase();
+
+  const t = title.toLowerCase();
+  const f = form.toLowerCase();
   const ini = initials.toLowerCase();
 
   const matches = data.filter(r => {
-    const status = (r.Status || "").toLowerCase();
-    return (r.Title || "").toLowerCase()   === t &&
-           (r.Form  || "").toLowerCase()   === f &&
-           (r.Initials || "").toLowerCase()=== ini &&
-           status === "loan" &&
-           !r["Return Date"];
+    const isLoan = (r.Status || "").toLowerCase() === "loan" && !r["Return Date"];
+    return isLoan &&
+      (r.Title || "").toLowerCase() === t &&
+      (r.Form || "").toLowerCase() === f &&
+      (r.Initials || "").toLowerCase() === ini;
   });
 
   return matches.length ? matches[0] : null;
 }
+</script>
+<script>
+/* ================================================================
+   PART 4.3 — DETAIL SCREEN, FORM LOGIC, LOAN/RETURN PROCESSING,
+               SUMMARY + AR BUTTON
+================================================================ */
 
 /* ================================================================
-   DETAIL SCREEN
+   SHOW DETAIL SCREEN AFTER SCAN OR OCR MATCH
 ================================================================ */
 
 async function showDetailScreen(book) {
@@ -558,12 +622,15 @@ async function showDetailScreen(book) {
 
   selectedBook = book;
 
+  // Hide all other screens
   document.getElementById("scan-screen").style.display    = "none";
   document.getElementById("form-screen").style.display    = "none";
   document.getElementById("who-screen").style.display     = "none";
   document.getElementById("summary-screen").style.display = "none";
-  document.getElementById("detail-screen").style.display  = "block";
 
+  document.getElementById("detail-screen").style.display = "block";
+
+  // Populate detail view
   document.getElementById("detailTitle").textContent  = book.title;
   document.getElementById("detailAuthor").textContent = "Author: " + book.author;
 
@@ -575,38 +642,46 @@ async function showDetailScreen(book) {
     cover.style.display = "none";
   }
 
+  // Word count estimate
   const wcEl = document.getElementById("detailWordCount");
   if (book.pageCount && Number.isFinite(book.pageCount)) {
     const estWords = Math.round(book.pageCount * 275);
-    wcEl.textContent = `Estimated word count: ~${estWords.toLocaleString()} words (${book.pageCount} pages)`;
+    wcEl.textContent =
+      `Estimated word count: ~${estWords.toLocaleString()} words (${book.pageCount} pages)`;
   } else {
     wcEl.textContent = "Estimated word count unavailable.";
   }
 
+  // Load copy info
   updateCopiesInfo(book);
 
+  // Show return button if ANY copy is on loan
   const data = await fetchSheetData();
-  const t = (book.title || "").toLowerCase();
+  const t = book.title.toLowerCase();
   const rows = data.filter(r => (r.Title || "").toLowerCase() === t);
-  const anyOnLoan = rows.some(r =>
-    (r.Status || "").toLowerCase() === "loan" && !r["Return Date"]
+
+  const anyOnLoan = rows.some(
+    r => (r.Status || "").toLowerCase() === "loan" && !r["Return Date"]
   );
 
-  document.getElementById("returnButton").style.display = anyOnLoan ? "block" : "none";
+  document.getElementById("returnButton").style.display =
+    anyOnLoan ? "block" : "none";
 }
 
+/* Handle BACK button from detail screen */
 document.getElementById("backToResultsButton").addEventListener("click", () => {
-  document.getElementById("detail-screen").style.display  = "none";
-  document.getElementById("scan-screen").style.display    = "block";
+  document.getElementById("detail-screen").style.display = "none";
+  document.getElementById("scan-screen").style.display   = "block";
 });
 
 /* ================================================================
-   FORM / INITIALS
+   FORM SCREEN — SELECT FORM, INITIALS, LOCATION
 ================================================================ */
 
 document.getElementById("formSelect").addEventListener("change", () => {
   const form = document.getElementById("formSelect").value;
   const sel  = document.getElementById("initialsSelect");
+
   sel.innerHTML = `<option value="">Select Initials…</option>`;
 
   if (formStudents[form]) {
@@ -619,20 +694,19 @@ document.getElementById("formSelect").addEventListener("change", () => {
   }
 });
 
-/* ================================================================
-   OPEN FORM SCREEN (SIGN OUT / RETURN)
-================================================================ */
-
+/* Open form screen for SIGN OUT */
 document.getElementById("signOutButton").addEventListener("click", () => {
   pendingAction = "loan";
   openFormScreen();
 });
 
+/* Open form screen for RETURN */
 document.getElementById("returnButton").addEventListener("click", () => {
   pendingAction = "return";
   openFormScreen();
 });
 
+/* Show form screen */
 function openFormScreen() {
   if (!selectedBook) return;
 
@@ -643,7 +717,7 @@ function openFormScreen() {
 
   const label = document.getElementById("locationLabel");
   label.textContent =
-    (pendingAction === "loan")
+    pendingAction === "loan"
       ? "Which shelf are you taking the book from?"
       : "Which shelf are you leaving the book on?";
 
@@ -651,16 +725,18 @@ function openFormScreen() {
   document.getElementById("form-screen").style.display   = "block";
 }
 
+/* BACK button on form screen */
 document.getElementById("formBackBtn").addEventListener("click", () => {
   document.getElementById("form-screen").style.display   = "none";
   document.getElementById("detail-screen").style.display = "block";
 });
 
 /* ================================================================
-   PROCESS LOAN / RETURN
+   PROCESS LOAN OR RETURN
 ================================================================ */
 
 document.getElementById("formContinueBtn").addEventListener("click", async () => {
+
   if (!selectedBook || !pendingAction) {
     alert("No book or action selected.");
     return;
@@ -682,9 +758,13 @@ document.getElementById("formContinueBtn").addEventListener("click", async () =>
   const today = new Date().toLocaleDateString();
   let record = null;
 
+  /* -------------------------------
+     SIGN OUT LOGIC
+  -------------------------------- */
   if (pendingAction === "loan") {
-    // Taking a copy from that shelf
+
     const copyRow = await findCopyForLoan(selectedBook.title, location);
+
     if (!copyRow) {
       alert("No available copy on that shelf.");
       return;
@@ -694,21 +774,27 @@ document.getElementById("formContinueBtn").addEventListener("click", async () =>
       Title: selectedBook.title,
       Author: selectedBook.author,
       OriginalLocation: copyRow.Location,
-      NewLocation: copyRow.Location,     // stays same until return
+      NewLocation: copyRow.Location,  // stays until return
       Form: form,
       Initials: initials,
       LoanDate: today,
       ReturnDate: "",
       Status: "Loan"
     };
+
     await postRecord(record);
     showSummary(record, false);
+  }
 
-  } else {
-    // Returning a book: match by title + form + initials
+  /* -------------------------------
+     RETURN LOGIC
+  -------------------------------- */
+  else {
+
     const copyRow = await findCopyForReturn(selectedBook.title, form, initials);
+
     if (!copyRow) {
-      alert("No matching copy found on loan for that pupil and book.");
+      alert("No matching copy found on loan for this pupil.");
       return;
     }
 
@@ -716,35 +802,41 @@ document.getElementById("formContinueBtn").addEventListener("click", async () =>
       Title: selectedBook.title,
       Author: selectedBook.author,
       OriginalLocation: copyRow.Location,
-      NewLocation: location,             // new shelf location
+      NewLocation: location,     // where pupil leaves the book
       Form: form,
       Initials: initials,
       LoanDate: copyRow["Loan Date"] || "",
       ReturnDate: today,
       Status: "Return"
     };
+
     await postRecord(record);
     showSummary(record, true);
   }
 });
 
 /* ================================================================
-   SUMMARY + AR BUTTON
+   SUMMARY SCREEN
 ================================================================ */
 
 function showSummary(record, isReturn) {
-  document.getElementById("summaryForm").innerHTML      = `<b>Form:</b> ${record.Form}`;
-  document.getElementById("summaryInitials").innerHTML  = `<b>Name:</b> ${record.Initials}`;
-  document.getElementById("summaryLocation").innerHTML  = `<b>Location:</b> ${record.NewLocation}`;
-  document.getElementById("summaryBook").innerHTML      = `<b>Book:</b> ${record.Title}`;
-  document.getElementById("summaryAuthor").innerHTML    = `<b>Author:</b> ${record.Author}`;
-  document.getElementById("summaryAction").innerHTML    =
+  document.getElementById("summaryForm").innerHTML =
+    `<b>Form:</b> ${record.Form}`;
+  document.getElementById("summaryInitials").innerHTML =
+    `<b>Name:</b> ${record.Initials}`;
+  document.getElementById("summaryLocation").innerHTML =
+    `<b>Location:</b> ${record.NewLocation}`;
+  document.getElementById("summaryBook").innerHTML =
+    `<b>Book:</b> ${record.Title}`;
+  document.getElementById("summaryAuthor").innerHTML =
+    `<b>Author:</b> ${record.Author}`;
+  document.getElementById("summaryAction").innerHTML =
     `<b>Status:</b> ${record.Status === "Loan" ? "Signed Out" : "Returned"}`;
-  document.getElementById("summaryDate").innerHTML      =
+  document.getElementById("summaryDate").innerHTML =
     `<b>Today:</b> ${new Date().toLocaleDateString()}`;
-  document.getElementById("summaryLoan").innerHTML      =
+  document.getElementById("summaryLoan").innerHTML =
     `<b>Date Loaned:</b> ${record.LoanDate || "—"}`;
-  document.getElementById("summaryReturn").innerHTML    =
+  document.getElementById("summaryReturn").innerHTML =
     `<b>Date Returned:</b> ${record.ReturnDate || "—"}`;
 
   const img = document.getElementById("summaryCover");
@@ -755,17 +847,26 @@ function showSummary(record, isReturn) {
     img.style.display = "none";
   }
 
+  /* Show AR button ONLY on return */
   document.getElementById("arButton").style.display =
     isReturn ? "block" : "none";
 
+  // Show the summary screen
   document.getElementById("form-screen").style.display    = "none";
   document.getElementById("detail-screen").style.display  = "none";
   document.getElementById("summary-screen").style.display = "block";
 }
 
+/* Accelerated Reader link */
 document.getElementById("arButton").addEventListener("click", () => {
   window.open(AR_URL, "_blank");
 });
+</script>
+<script>
+/* ================================================================
+   PART 4.4 — WHO HAS THIS BOOK, RESET, START SCREEN BUTTONS,
+               AUTOSUGGEST ENGINE
+================================================================ */
 
 /* ================================================================
    WHO HAS THIS BOOK?
@@ -773,8 +874,10 @@ document.getElementById("arButton").addEventListener("click", () => {
 
 document.getElementById("whoHasButton").addEventListener("click", () => {
   stopAllScanning();
+
   document.getElementById("scan-screen").style.display = "none";
   document.getElementById("who-screen").style.display  = "block";
+
   document.getElementById("whoQueryInput").value = "";
   document.getElementById("whoResults").innerHTML = "";
 });
@@ -794,62 +897,76 @@ document.getElementById("whoSearchButton").addEventListener("click", async () =>
   }
 
   const data = await fetchSheetData();
-  const rows = data.filter(r =>
+  const matches = data.filter(r =>
     (r.Title || "").toLowerCase().includes(q)
   );
 
-  if (!rows.length) {
+  if (!matches.length) {
     out.innerHTML = "<p>No records found for that title.</p>";
     return;
   }
 
   out.innerHTML = "";
-  rows.forEach(r => {
+
+  matches.forEach(r => {
     const status = (r.Status || "").toLowerCase();
     const onLoan = status === "loan" && !r["Return Date"];
 
-    let html = `<div style="margin-bottom:12px;background:rgba(255,255,255,0.12);padding:10px;border-radius:10px;">`;
-    html += `<p><b>Title:</b> ${r.Title || "Unknown"}</p>`;
-    html += `<p><b>Author:</b> ${r.Author || "Unknown"}</p>`;
-    html += `<p><b>Location:</b> ${r.Location || "—"}</p>`;
-    html += `<p><b>Form:</b> ${r.Form || "—"}</p>`;
-    html += `<p><b>Initials:</b> ${r.Initials || "—"}</p>`;
-    html += `<p><b>Loan Date:</b> ${r["Loan Date"] || "—"}</p>`;
-    html += `<p><b>Return Date:</b> ${r["Return Date"] || "—"}</p>`;
-    html += `<p style="color:${onLoan ? "#ffcc66" : "#99ff99"};"><b>Status:</b> ${onLoan ? "On loan" : "Returned"}</p>`;
-    html += `</div>`;
+    let html = `
+      <div style="
+        margin-bottom:12px;
+        background:rgba(255,255,255,0.12);
+        padding:10px;
+        border-radius:10px;">
+        <p><b>Title:</b> ${r.Title || "Unknown"}</p>
+        <p><b>Author:</b> ${r.Author || "Unknown"}</p>
+        <p><b>Location:</b> ${r.Location || "—"}</p>
+        <p><b>Form:</b> ${r.Form || "—"}</p>
+        <p><b>Initials:</b> ${r.Initials || "—"}</p>
+        <p><b>Loan Date:</b> ${r["Loan Date"] || "—"}</p>
+        <p><b>Return Date:</b> ${r["Return Date"] || "—"}</p>
+        <p style="color:${onLoan ? "#ffcc66" : "#99ff99"};">
+          <b>Status:</b> ${onLoan ? "On loan" : "Returned"}
+        </p>
+      </div>
+    `;
+
     out.innerHTML += html;
   });
 });
 
 /* ================================================================
-   RESET
+   RESET TO START SCREEN
 ================================================================ */
 
 function resetForm() {
   stopAllScanning();
+
   selectedBook  = null;
   pendingAction = null;
 
+  // Hide screens
   document.getElementById("summary-screen").style.display = "none";
   document.getElementById("detail-screen").style.display  = "none";
   document.getElementById("form-screen").style.display    = "none";
   document.getElementById("who-screen").style.display     = "none";
+
+  // Show start
   document.getElementById("scan-screen").style.display    = "block";
 
+  // Reset manual search
   document.getElementById("manualTitleInput").value = "";
   document.getElementById("manualTitleArea").style.display = "none";
   document.getElementById("suggestions").innerHTML = "";
 }
 
 /* ================================================================
-   START-SCREEN BUTTON WIRING
+   START SCREEN BUTTON WIRING
 ================================================================ */
 
-// Barcode scan button
 document.getElementById("startScanButton").onclick = startBarcodeScanner;
 
-// Add "Capture Book Cover" button under the existing ones
+/* Add COVER CAPTURE button dynamically */
 (function addCaptureButton() {
   const scanScreen = document.getElementById("scan-screen");
   const btn = document.createElement("button");
@@ -858,119 +975,251 @@ document.getElementById("startScanButton").onclick = startBarcodeScanner;
   btn.onclick = startCoverCapture;
   scanScreen.insertBefore(btn, document.getElementById("manualTitleArea"));
 })();
-</script>
-<script>
-/* ============================================================
-   AUTOSUGGEST ENGINE
-   - Uses libraryBooks[] built from Google Sheet
-   - Grabs Google Books cover + word count when needed
-============================================================ */
+
+/* Show/hide manual search */
+document.getElementById("manualTitleButton").addEventListener("click", () => {
+  const area = document.getElementById("manualTitleArea");
+  area.style.display = area.style.display === "block" ? "none" : "block";
+});
+
+/* ================================================================
+   AUTOSUGGEST ENGINE (Uses libraryBooks + Google Books)
+================================================================ */
 
 const manualInput = document.getElementById("manualTitleInput");
 const sugDiv      = document.getElementById("suggestions");
 
-// Show/hide the manual title search
+manualInput.addEventListener("input", async () => {
+  const q = manualInput.value.trim().toLowerCase();
+  sugDiv.innerHTML = "";
+
+  if (!q) return;
+
+  // Ensure data loaded
+  if (!libraryBooks.length) await loadLibraryBooks();
+
+  // Find all copies matching title substring
+  const matches = libraryBooks.filter(b =>
+    b.title.toLowerCase().includes(q)
+  );
+
+  if (!matches.length) {
+    sugDiv.innerHTML = "<p>No matching books in your library.</p>";
+    return;
+  }
+
+  // Group by title
+  const groups = {};
+  matches.forEach(copy => {
+    const key = copy.title.toLowerCase();
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(copy);
+  });
+
+  for (let titleKey in groups) {
+
+    const copies = groups[titleKey];
+    const first  = copies[0];
+
+    /* Load Google Books cover + pageCount if needed */
+    let g = googleCache[first.title];
+    if (!g) {
+      const gb   = await lookupBook(first.title);
+      const wc   = gb.pageCount ? Math.round(gb.pageCount * 275) : null;
+      g = {
+        thumbnail: gb.thumbnail || "",
+        wordCount: wc
+      };
+      googleCache[first.title] = g;
+    }
+
+    const imgHTML = g.thumbnail
+      ? `<img src="${g.thumbnail}" style="width:55px; height:80px; border-radius:4px;">`
+      : `<div style="width:55px;height:80px;background:#444;border-radius:4px;"></div>`;
+
+    const wcText = g.wordCount
+      ? `Estimated: ${g.wordCount.toLocaleString()} words`
+      : "Word count unavailable";
+
+    /* Build copy list */
+    let copyHTML = "";
+    copies.forEach((c, i) => {
+      const onLoan = c.onLoan;
+      const grey   = onLoan ? "opacity:0.4;" : "";
+      const badge  = onLoan
+        ? `<span style="color:#ff9999; font-size:12px;">(On loan)</span>`
+        : `<span style="color:#99ff99; font-size:12px;">(Available)</span>`;
+
+      copyHTML += `
+        <p style="margin:2px 0; font-size:13px; ${grey}">
+          Copy ${i+1} — <b>${c.location}</b> ${badge}
+        </p>
+      `;
+    });
+
+    /* Create suggestion card */
+    const card = document.createElement("div");
+    card.className = "book-card";
+    card.style.cursor = "pointer";
+
+    card.innerHTML = `
+      ${imgHTML}
+      <div style="margin-left:10px;">
+        <h4 style="margin:0; font-size:16px;">${first.title}</h4>
+        <p style="margin:0; font-size:14px;">${first.author}</p>
+        <p style="margin:2px 0; font-size:13px; color:#ccc;">${wcText}</p>
+        ${copyHTML}
+      </div>
+    `;
+
+    /* Click → open detail screen */
+    card.addEventListener("click", async () => {
+      const gb = await lookupBook(first.title);
+      gb.title  = first.title;
+      gb.author = first.author || gb.author;
+      selectedBook = gb;
+      showDetailScreen(gb);
+    });
+
+    sugDiv.appendChild(card);
+  }
+});
+</script>
+<script>
+/* ==========================
+   MANUAL SEARCH AREA TOGGLE
+========================== */
 document.getElementById("manualTitleButton").addEventListener("click", () => {
     const area = document.getElementById("manualTitleArea");
-    area.style.display = area.style.display === "block" ? "none" : "block";
+    if (area.style.display === "none" || area.style.display === "") {
+        area.style.display = "block";
+    } else {
+        area.style.display = "none";
+    }
 });
 
+/* ==========================
+   AUTOSUGGEST ENGINE
+   - Uses libraryBooks from Part 4
+   - Uses lookupBook() from Part 4
+========================== */
+
+const manualInput = document.getElementById("manualTitleInput");
+const sugDiv      = document.getElementById("suggestions");
 
 manualInput.addEventListener("input", async () => {
-
     const q = manualInput.value.trim().toLowerCase();
     sugDiv.innerHTML = "";
-
     if (!q) return;
 
-    // Ensure data is loaded
-    if (!libraryBooks.length) await loadLibraryBooks();
+    // Ensure libraryBooks is loaded
+    if (!libraryBooks.length) {
+        await loadLibraryBooks();
+    }
 
-    // Filter all copies whose TITLE matches the input
-    const matches = libraryBooks.filter(
-        b => b.title.toLowerCase().includes(q)
+    // Filter copies whose title matches the query
+    const matches = libraryBooks.filter(copy =>
+        copy.title.toLowerCase().includes(q)
     );
 
     if (!matches.length) {
-        sugDiv.innerHTML = "<p>No matching books in your library.</p>";
+        sugDiv.innerHTML = "<p>No matching books in our library.</p>";
         return;
     }
 
-    // Group copies by LOWERCASE title
-    const grouped = {};
+    // Group copies by title
+    const byTitle = {};
     matches.forEach(copy => {
         const key = copy.title.toLowerCase();
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push(copy);
+        if (!byTitle[key]) byTitle[key] = [];
+        byTitle[key].push(copy);
     });
 
-    for (let titleKey in grouped) {
+    // Pupil's selected form (used to prioritise their own shelf)
+    const userForm = (document.getElementById("formSelect")?.value || "").toLowerCase();
 
-        const copies = grouped[titleKey];
-        const first  = copies[0]; // same title/author
+    for (let titleKey in byTitle) {
+        let copies = byTitle[titleKey];
+        const firstCopy = copies[0]; // same title/author
 
-        /* ---------- Google Books metadata (cached) ---------- */
-        let g = googleCache[first.title];
-        if (!g) {
-            const gb = await lookupBook(first.title);
+        // Sort: available first, then copies in pupil's form, then on-loan copies
+        copies.sort((a, b) => {
+            if (!a.onLoan && b.onLoan) return -1;
+            if (a.onLoan && !b.onLoan) return 1;
+
+            // Both available: prioritise user's own form location
+            if (!a.onLoan && !b.onLoan && userForm) {
+                const aIsUserForm = a.location.toLowerCase() === userForm;
+                const bIsUserForm = b.location.toLowerCase() === userForm;
+                if (aIsUserForm && !bIsUserForm) return -1;
+                if (!aIsUserForm && bIsUserForm) return 1;
+            }
+            return 0;
+        });
+
+        // Get or fetch Google Books metadata for this title (for cover + word count)
+        let gdata = googleCache[firstCopy.title];
+        if (!gdata) {
+            const gb = await lookupBook(firstCopy.title);
             const thumbnail = gb.thumbnail || "";
-            const wordCount = gb.pageCount ? Math.round(gb.pageCount * 275) : null;
-
-            g = { thumbnail, wordCount };
-            googleCache[first.title] = g;
+            const pageCount = gb.pageCount || null;
+            const wordCount = pageCount ? Math.round(pageCount * 275) : null;
+            gdata = { thumbnail, wordCount };
+            googleCache[firstCopy.title] = gdata;
         }
 
-        const imgHTML = g.thumbnail
-            ? `<img src="${g.thumbnail}" style="width:55px;height:80px;border-radius:4px;">`
-            : `<div style="width:55px;height:80px;background:#444;border-radius:4px;"></div>`;
+        const card = document.createElement("div");
+        card.className = "book-card";
+        card.style.cursor = "pointer";
 
-        const wcText = g.wordCount
-            ? `Estimated: ${g.wordCount.toLocaleString()} words`
-            : "Word count unavailable";
+        const imgHTML = gdata.thumbnail
+            ? `<img src="${gdata.thumbnail}" style="width:55px; height:80px; border-radius:4px;">`
+            : `<div style="width:55px; height:80px; background:#444; border-radius:4px;"></div>`;
 
-        /* ---------- Build copy list ---------- */
+        const wordText = gdata.wordCount
+            ? `Estimated: ${gdata.wordCount.toLocaleString()} words`
+            : `Word count unavailable`;
+
+        // Build list of copies under this title
         let copyListHTML = "";
-        copies.forEach((copy, i) => {
-            const onLoan = copy.onLoan;
-            const grey   = onLoan ? "opacity:0.4;" : "";
-            const badge  = onLoan
-                ? `<span style="color:#ff9999;font-size:12px;">(On loan)</span>`
-                : `<span style="color:#99ff99;font-size:12px;">(Available)</span>`;
+        copies.forEach((copy, idx) => {
+            const isLoan = copy.onLoan;
+            const grey   = isLoan ? "opacity:0.4;" : "";
+            const badge  = isLoan
+                ? `<span style="color:#ff8888; font-size:12px;">(On loan since ${copy.loanDate || "?"})</span>`
+                : `<span style="color:#99ff99; font-size:12px;">(Available now)</span>`;
 
             copyListHTML += `
                 <p style="margin:2px 0; font-size:13px; ${grey}">
-                    Copy ${i+1} — <b>${copy.location}</b> ${badge}
+                    Copy ${idx + 1} — <b>${copy.location || "Unknown location"}</b> ${badge}
                 </p>
             `;
         });
 
-        /* ---------- Build suggestion card ---------- */
-        const card = document.createElement("div");
-        card.className = "book-card";
-        card.style.cursor = "pointer";
         card.innerHTML = `
             ${imgHTML}
             <div style="margin-left:10px;">
-                <h4 style="margin:0; font-size:16px;">${first.title}</h4>
-                <p style="margin:0; font-size:14px;">${first.author}</p>
-                <p style="margin:2px 0; font-size:13px; color:#ccc;">${wcText}</p>
-                ${copyListHTML}
+                <h4 style="margin:0; font-size:16px;">${firstCopy.title}</h4>
+                <p style="margin:0; font-size:14px;">${firstCopy.author}</p>
+                <p style="margin:2px 0; font-size:13px; color:#ccc;">${wordText}</p>
+                <div style="margin-top:4px;">${copyListHTML}</div>
             </div>
         `;
 
-        /* ---------- Click = open detail screen ---------- */
-        card.addEventListener("click", async () => {
-            const gb = await lookupBook(first.title);
-            gb.title  = first.title;
-            gb.author = first.author || gb.author;
-
-            selectedBook = gb;
-            showDetailScreen(gb);
+        // When the pupil clicks a suggestion → show full detail screen
+        card.addEventListener("click", () => {
+            lookupBook(firstCopy.title).then(gb => {
+                gb.title  = firstCopy.title;
+                gb.author = firstCopy.author || gb.author;
+                selectedBook = gb;
+                showDetailScreen(gb);
+            });
         });
 
         sugDiv.appendChild(card);
     }
 });
 </script>
+
 </body>
 </html>
